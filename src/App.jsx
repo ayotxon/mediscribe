@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext.jsx'
-import { setAuthToken } from './services/api.js'
+import { setRefreshFn } from './services/api.js'
 import LoginPage from './pages/LoginPage.jsx'
 import HomePage from './pages/HomePage.jsx'
 import ReadPage from './pages/ReadPage.jsx'
@@ -16,11 +16,12 @@ function ProtectedRoute({ children }) {
 }
 
 export default function App() {
-  const { session } = useAuth()
+  const { refreshAccessToken } = useAuth()
 
+  // Wire the refresh function into the api module for auto-refresh on TOKEN_EXPIRED
   useEffect(() => {
-    setAuthToken(session?.access_token || null)
-  }, [session])
+    setRefreshFn(refreshAccessToken)
+  }, [refreshAccessToken])
 
   return (
     <Routes>

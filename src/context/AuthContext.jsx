@@ -1,45 +1,99 @@
-import { createContext, useContext, useEffect, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
+/**
+ * Auth context for MediScribe
+ * Uses the same cookie-based auth system as ConsultScribe:
+ * - Login  → POST /api/auth/cookie/login   → httpOnly cookies set by Railway via Vercel rewrite
+ * - Check  → GET  /api/auth/cookie/session → validates cookies server-side
+ * - Logout → POST /api/auth/cookie/logout  → clears cookies
+ *
+ * All /api/* calls go through Vercel rewrites (same-origin), so cookies are sent automatically.
+ */
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-)
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [session, setSession] = useState(null)
+  const [user, setUser]       = useState(null)
   const [loading, setLoading] = useState(true)
+  const refreshTokenRef       = useRef(null)  // stored in memory only (never localStorage)
 
+  // ── Check existing session on mount ──────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-    })
-
-    return () => subscription.unsubscribe()
+    checkSession()
   }, [])
 
-  const signIn = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw error
+  async function checkSession() {
+    try {
+      const res = await fetch('/api/auth/cookie/session', { credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.authenticated) {
+          setUser(data.user)
+          return
+        }
+      }
+    } catch {
+      // Network error — treat as unauthenticated
+    } finally {
+      setLoading(false)
+    }
+    setUser(null)
+  }
+
+  // ── Login ─────────────────────────────────────────────────────────────────────
+  async function signIn(email, password) {
+    const res = await fetch('/api/auth/cookie/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    })
+
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Identifiants invalides')
+
+    refreshTokenRef.current = data.refreshToken  // keep in memory
+    setUser(data.user)
     return data
   }
 
-  const signOut = async () => {
-    await supabase.auth.signOut()
+  // ── Refresh access token ──────────────────────────────────────────────────────
+  async function refreshAccessToken() {
+    if (!refreshTokenRef.current) return false
+
+    try {
+      const res = await fetch('/api/auth/cookie/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: refreshTokenRef.current })
+      })
+
+      if (!res.ok) {
+        refreshTokenRef.current = null
+        setUser(null)
+        return false
+      }
+
+      const data = await res.json()
+      refreshTokenRef.current = data.refreshToken  // rotated token
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // ── Logout ────────────────────────────────────────────────────────────────────
+  async function signOut() {
+    try {
+      await fetch('/api/auth/cookie/logout', { method: 'POST', credentials: 'include' })
+    } catch { /* ignore */ }
+    refreshTokenRef.current = null
+    setUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signOut, supabase }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signOut, refreshAccessToken }}>
       {children}
     </AuthContext.Provider>
   )
