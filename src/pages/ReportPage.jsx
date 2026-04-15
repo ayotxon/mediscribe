@@ -3,334 +3,287 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { getReport, updateReport, deleteReport } from '../services/api.js'
 import { getExamType } from '../data/examTypes.js'
 
-// ── Echo cardiaque: table de mesures avec normes ──────────────────────────────
-const ECHO_LEFT = [
-  { key: 'ao_initiale_mm',  label: 'AO Initiale',  norme: '20-37 mm' },
-  { key: 'sigmoides_mm',    label: 'Sigmoïdes',    norme: '15-26 mm' },
-  { key: 'og_mm',           label: 'OG Systole',   norme: '19-40 mm' },
-  { key: 'vg_diastole_mm',  label: 'VG Diastole',  norme: '36-56 mm' },
-  { key: 'vg_systole_mm',   label: 'VG Systole',   norme: '25-37 mm' },
-  { key: 'masse_g_m2',      label: 'Masse',        norme: '<95 g/m² F' },
-  { key: 'fr_pct',          label: 'FR',           norme: '> 25 %' },
-  { key: 'fe',              label: 'FE',           norme: '0,60-0,80' },
-]
-const ECHO_RIGHT = [
-  { key: 'sv_diastole_mm',  label: 'SIV Diastole', norme: '6-11 mm' },
-  { key: 'sv_systole_mm',   label: 'SIV Systole',  norme: '9-15 mm' },
-  { key: 'pp_diastole_mm',  label: 'PP Diastole',  norme: '6-11 mm' },
-  { key: 'pp_systole_mm',   label: 'PP Systole',   norme: '9-15 mm' },
-]
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function humanLabel(key) {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
 
-function EditableField({ value, onChange, editMode, type = 'text', style = {} }) {
-  if (!editMode) {
-    return <span style={style}>{value ?? '—'}</span>
+function isBlank(v) {
+  if (v === null || v === undefined) return true
+  if (typeof v === 'string' && v.trim() === '') return true
+  if (Array.isArray(v) && v.length === 0) return true
+  if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) return true
+  return false
+}
+
+// ── Editable primitives ───────────────────────────────────────────────────────
+function EField({ value, onChange, editMode, multiline = false }) {
+  if (!editMode) return <span>{isBlank(value) ? '—' : String(value)}</span>
+  if (multiline) {
+    return (
+      <textarea
+        value={value ?? ''}
+        rows={2}
+        onChange={e => onChange(e.target.value)}
+        className="edit-input edit-textarea"
+      />
+    )
   }
   return (
     <input
-      type={type}
       value={value ?? ''}
       onChange={e => onChange(e.target.value)}
-      style={{
-        background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.4)',
-        borderRadius: 4, padding: '1px 4px', fontSize: 'inherit',
-        color: 'var(--text-primary)', width: '100%', minWidth: 40, maxWidth: 120,
-        ...style
-      }}
+      className="edit-input"
     />
   )
 }
 
-function EditableText({ value, onChange, editMode, rows = 3 }) {
-  if (!editMode) return <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{value ?? '—'}</p>
+// ── Renders a measurements object as a 2-column table ─────────────────────────
+// Keys and values come entirely from the structured JSON (no hardcoded schema)
+function MesuresTable({ data, editMode, onChange }) {
+  if (isBlank(data)) return null
+  const entries = Object.entries(data).filter(([, v]) => !isBlank(v) || editMode)
+  if (entries.length === 0) return null
+
+  function set(key, val) { onChange({ ...data, [key]: val }) }
+
+  // Split into two columns
+  const mid = Math.ceil(entries.length / 2)
+  const left = entries.slice(0, mid)
+  const right = entries.slice(mid)
+
   return (
-    <textarea
-      value={value ?? ''}
-      rows={rows}
-      onChange={e => onChange(e.target.value)}
-      style={{
-        width: '100%', background: 'rgba(59,130,246,0.08)',
-        border: '1px solid rgba(59,130,246,0.4)', borderRadius: 4,
-        padding: '4px 8px', fontSize: '0.9rem', color: 'var(--text-primary)',
-        resize: 'vertical', fontFamily: 'inherit'
-      }}
-    />
+    <table className="mesures-table">
+      <thead>
+        <tr>
+          <th colSpan={2}>Paramètres mesurés</th>
+          <th colSpan={2}>Paramètres mesurés</th>
+        </tr>
+      </thead>
+      <tbody>
+        {left.map(([key, val], i) => {
+          const [rKey, rVal] = right[i] || [null, null]
+          return (
+            <tr key={key}>
+              <td className="param-label-cell">{humanLabel(key)}</td>
+              <td><EField value={val} onChange={v => set(key, v)} editMode={editMode} /></td>
+              {rKey ? (
+                <>
+                  <td className="param-label-cell">{humanLabel(rKey)}</td>
+                  <td><EField value={rVal} onChange={v => set(rKey, v)} editMode={editMode} /></td>
+                </>
+              ) : <td colSpan={2} />}
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
   )
 }
 
-// ── Renderer echo cardiaque ───────────────────────────────────────────────────
-function EchoCardiaqueReport({ report, data, editMode, onChange }) {
-  const m = data.mesures || {}
-  const p = data.patient || {}
-  const doppler = data.doppler || {}
-  const commentaires = data.commentaires || []
+// ── Renders an array section (commentaires, anomalies…) ───────────────────────
+function ArraySection({ items, editMode, onChange }) {
+  if (!editMode && (!items || items.length === 0)) return <p style={{ color: 'var(--text-muted)' }}>—</p>
+  const arr = items || []
 
-  function setMesure(key, val) { onChange({ ...data, mesures: { ...m, [key]: val } }) }
-  function setPatient(key, val) { onChange({ ...data, patient: { ...p, [key]: val } }) }
-  function setDoppler(key, val) { onChange({ ...data, doppler: { ...doppler, [key]: val } }) }
-  function setCommentaire(i, val) {
-    const arr = [...commentaires]; arr[i] = val
-    onChange({ ...data, commentaires: arr })
-  }
-  function addCommentaire() { onChange({ ...data, commentaires: [...commentaires, ''] }) }
-  function removeCommentaire(i) {
-    onChange({ ...data, commentaires: commentaires.filter((_, j) => j !== i) })
-  }
+  function set(i, v) { const a = [...arr]; a[i] = v; onChange(a) }
+  function remove(i) { onChange(arr.filter((_, j) => j !== i)) }
+  function add() { onChange([...arr, '']) }
 
   return (
-    <div className="medical-report">
-      {/* ── Titre ── */}
-      <div className="report-title-block">
-        <h2 className="report-main-title">ÉCHOGRAPHIE DOPPLER CARDIAQUE</h2>
-      </div>
-
-      {/* ── Infos patient ── */}
-      <div className="report-patient-grid">
-        <div className="rpg-row">
-          <span className="rpg-label">Nom et prénoms :</span>
-          <EditableField value={report.patient_name} onChange={() => {}} editMode={false} />
-        </div>
-        <div className="rpg-row">
-          <span className="rpg-label">Poids :</span>
-          <EditableField value={p.poids} onChange={v => setPatient('poids', v)} editMode={editMode} />
-          <span className="rpg-label" style={{ marginLeft: 16 }}>Taille :</span>
-          <EditableField value={p.taille} onChange={v => setPatient('taille', v)} editMode={editMode} />
-        </div>
-        <div className="rpg-row">
-          <span className="rpg-label">Adressé par :</span>
-          <EditableField value={p.medecin_referent} onChange={v => setPatient('medecin_referent', v)} editMode={editMode} />
-        </div>
-        <div className="rpg-row">
-          <span className="rpg-label">Âge :</span>
-          <EditableField value={p.age} onChange={v => setPatient('age', v)} editMode={editMode} />
-          <span className="rpg-label" style={{ marginLeft: 16 }}>Sexe :</span>
-          <EditableField value={p.sexe} onChange={v => setPatient('sexe', v)} editMode={editMode} />
-          <span className="rpg-label" style={{ marginLeft: 16 }}>SC :</span>
-          <EditableField value={p.sc} onChange={v => setPatient('sc', v)} editMode={editMode} />
-          <span className="rpg-label" style={{ marginLeft: 16 }}>Date :</span>
-          <span>{new Date(report.created_at).toLocaleDateString('fr-FR')}</span>
-        </div>
-      </div>
-
-      {/* ── Renseignements cliniques ── */}
-      <div className="report-meta-row">
-        <div className="report-meta-item">
-          <span className="rpg-label">Renseignements Cliniques :</span>
-          <EditableField value={data.indication || report.indication} onChange={v => onChange({ ...data, indication: v })} editMode={editMode} />
-        </div>
-        <div className="report-meta-item">
-          <span className="rpg-label">Échoquantité :</span>
-          <EditableField value={data.echogenicite} onChange={v => onChange({ ...data, echogenicite: v })} editMode={editMode} />
-        </div>
-      </div>
-
-      {/* ── Table mesures ── */}
-      <table className="mesures-table">
-        <thead>
-          <tr>
-            <th>Paramètres mesurés</th>
-            <th>Normes adultes</th>
-            <th>Paramètres mesurés</th>
-            <th>Normes adultes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ECHO_LEFT.map((row, i) => {
-            const right = ECHO_RIGHT[i]
-            return (
-              <tr key={row.key}>
-                <td>
-                  <span className="param-label">{row.label} : </span>
-                  <EditableField value={m[row.key]} onChange={v => setMesure(row.key, v)} editMode={editMode} />
-                </td>
-                <td className="norme-cell">{row.norme}</td>
-                {right ? (
-                  <>
-                    <td>
-                      <span className="param-label">{right.label} : </span>
-                      <EditableField value={m[right.key]} onChange={v => setMesure(right.key, v)} editMode={editMode} />
-                    </td>
-                    <td className="norme-cell">{right.norme}</td>
-                  </>
-                ) : i === ECHO_LEFT.length - 4 ? (
-                  <td colSpan={2} rowSpan={4} className="autres-cell">
-                    <div><strong>Autres</strong></div>
-                    {[
-                      { key: 'e_a_ratio',  label: 'E/A' },
-                      { key: 'e_eprime',   label: "E/E'" },
-                      { key: 'vog_ml',     label: 'VOG (ml)' },
-                      { key: 'vtd_ml',     label: 'VTD (ml)' },
-                      { key: 'tapse_mm',   label: 'TAPSE (mm)' },
-                    ].map(f => (
-                      <div key={f.key} style={{ marginTop: 4 }}>
-                        <span className="param-label">{f.label} = </span>
-                        <EditableField value={m[f.key]} onChange={v => setMesure(f.key, v)} editMode={editMode} />
-                      </div>
-                    ))}
-                  </td>
-                ) : null}
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-
-      {/* ── Commentaires ── */}
-      <div className="report-section-numbered">
-        <div className="section-num-title">1. COMMENTAIRES : BD-TM-Péricarde, Cavités, Valves, Parois, Cinétique</div>
-        <ul className="commentaires-list">
-          {commentaires.map((c, i) => (
-            <li key={i}>
-              {editMode ? (
-                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                  <EditableText value={c} onChange={v => setCommentaire(i, v)} editMode={editMode} rows={1} />
-                  <button onClick={() => removeCommentaire(i)} className="btn-icon-danger" title="Supprimer">✕</button>
-                </div>
-              ) : c}
-            </li>
-          ))}
-        </ul>
-        {editMode && (
-          <button className="btn-add-item" onClick={addCommentaire}>+ Ajouter un commentaire</button>
-        )}
-      </div>
-
-      {/* ── Doppler ── */}
-      <div className="report-section-numbered">
-        <div className="section-num-title">2. DOPPLER :</div>
-        {Object.entries({ mitrale: 'Mitrale', aorte: 'Aorte', pulmonaire: 'Pulmonaire', tricuspide: 'Tricuspide' }).map(([k, label]) => (
-          <div key={k} className="doppler-row">
-            <span className="doppler-label">- {label} :</span>
-            <EditableText value={doppler[k]} onChange={v => setDoppler(k, v)} editMode={editMode} rows={1} />
-          </div>
+    <div>
+      <ul className="commentaires-list">
+        {arr.map((item, i) => (
+          <li key={i}>
+            {editMode ? (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <textarea className="edit-input edit-textarea" value={item} rows={1}
+                  onChange={e => set(i, e.target.value)} style={{ flex: 1 }} />
+                <button onClick={() => remove(i)} className="btn-icon-danger" style={{ flexShrink: 0 }}>✕</button>
+              </div>
+            ) : item}
+          </li>
         ))}
-      </div>
-
-      {/* ── Conclusion ── */}
-      <div className="report-section-numbered">
-        <div className="section-num-title">3. CONCLUSION :</div>
-        {(data.conclusion ? (Array.isArray(data.conclusion) ? data.conclusion : [data.conclusion]) : []).map((c, i) => (
-          <div key={i} style={{ marginLeft: 8 }}>• <EditableText value={c} onChange={v => {
-            const arr = Array.isArray(data.conclusion) ? [...data.conclusion] : [data.conclusion]
-            arr[i] = v; onChange({ ...data, conclusion: arr })
-          }} editMode={editMode} rows={2} /></div>
-        ))}
-        {!Array.isArray(data.conclusion) && !data.conclusion && editMode && (
-          <EditableText value="" onChange={v => onChange({ ...data, conclusion: v })} editMode={editMode} rows={3} />
-        )}
-      </div>
-
-      {/* ── Signature ── */}
-      <div className="report-signature">
-        <span>Dr {p.medecin_referent || '___________________'}</span>
-      </div>
+      </ul>
+      {editMode && <button className="btn-add-item" onClick={add}>+ Ajouter</button>}
     </div>
   )
 }
 
-// ── Renderer générique pour les autres types d'examens ────────────────────────
-function GenericReport({ report, data, editMode, onChange }) {
-  function renderValue(value, path, depth = 0) {
-    if (value === null || value === undefined) {
-      return editMode
-        ? <input style={inputStyle} value="" onChange={e => setPath(path, e.target.value)} placeholder="—" />
-        : <span style={{ color: 'var(--text-muted)' }}>—</span>
-    }
-    if (Array.isArray(value)) {
-      return (
-        <div>
-          {value.map((item, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 4 }}>
-              <span style={{ color: 'var(--text-muted)' }}>•</span>
-              {editMode
-                ? <textarea rows={1} style={{ ...inputStyle, flex: 1 }} value={item} onChange={e => {
-                    const arr = [...value]; arr[i] = e.target.value; setPath(path, arr)
-                  }} />
-                : <span>{item}</span>
+// ── Renders a nested object as labeled rows ───────────────────────────────────
+function ObjectSection({ data, editMode, onChange, depth = 0 }) {
+  if (isBlank(data)) return <span style={{ color: 'var(--text-muted)' }}>—</span>
+  const entries = Object.entries(data).filter(([, v]) => !isBlank(v) || editMode)
+
+  function set(key, val) { onChange({ ...data, [key]: val }) }
+
+  return (
+    <div style={depth > 0 ? { paddingLeft: 12, borderLeft: '2px solid var(--border)', marginTop: 4 } : {}}>
+      {entries.map(([key, value]) => {
+        const isObj = value !== null && typeof value === 'object' && !Array.isArray(value)
+        const isArr = Array.isArray(value)
+        return (
+          <div key={key} className="generic-field-row">
+            <span className="generic-field-label">{humanLabel(key)}</span>
+            <div style={{ flex: 1 }}>
+              {isArr
+                ? <ArraySection items={value} editMode={editMode} onChange={v => set(key, v)} />
+                : isObj
+                ? <ObjectSection data={value} editMode={editMode} onChange={v => set(key, v)} depth={depth + 1} />
+                : <EField value={value} onChange={v => set(key, v)} editMode={editMode} multiline={String(value).length > 60} />
               }
             </div>
-          ))}
-          {editMode && <button className="btn-add-item" onClick={() => setPath(path, [...value, ''])}>+ Ajouter</button>}
-        </div>
-      )
-    }
-    if (typeof value === 'object') {
-      return (
-        <div style={depth > 0 ? { paddingLeft: 12, borderLeft: '2px solid var(--border)', marginTop: 4 } : {}}>
-          {Object.entries(value).map(([k, v]) => (
-            <div key={k} className="generic-field-row">
-              <span className="generic-field-label">{k.replace(/_/g, ' ')}</span>
-              {renderValue(v, [...path, k], depth + 1)}
-            </div>
-          ))}
-        </div>
-      )
-    }
-    return editMode
-      ? <input style={inputStyle} value={value} onChange={e => setPath(path, e.target.value)} />
-      : <span>{String(value)}</span>
-  }
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
-  const inputStyle = {
-    background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.4)',
-    borderRadius: 4, padding: '2px 6px', fontSize: 'inherit', color: 'var(--text-primary)', width: '100%'
-  }
+// ── Main report renderer (fully data-driven) ──────────────────────────────────
+function ReportBody({ report, data, editMode, onChange }) {
+  const examType = getExamType(report.exam_type)
 
-  function setPath(pathArr, val) {
-    const clone = JSON.parse(JSON.stringify(data))
-    let obj = clone
-    for (let i = 0; i < pathArr.length - 1; i++) obj = obj[pathArr[i]]
-    obj[pathArr[pathArr.length - 1]] = val
-    onChange(clone)
-  }
+  function set(key, val) { onChange({ ...data, [key]: val }) }
 
-  const { patient, indication, conclusion, ...rest } = data
+  // Known section order — unrecognised keys fall into "other"
+  const SECTION_ORDER = ['patient', 'indication', 'echogenicite', 'mesures', 'doppler',
+    'commentaires', 'anomalies', 'resultats', 'organes', 'biometrie', 'morphologie',
+    'annexes', 'vitalite', 'analyse', 'hematologie', 'biochimie', 'serologies',
+    'interpretation', 'activite_de_fond', 'conditions_enregistrement', 'organisation',
+    'reactivite', 'technique', 'grossesse', 'autres', 'conclusion']
+
+  const entries = Object.entries(data)
+  const ordered = [
+    ...SECTION_ORDER.map(k => entries.find(([key]) => key === k)).filter(Boolean),
+    ...entries.filter(([k]) => !SECTION_ORDER.includes(k))
+  ]
 
   return (
     <div className="medical-report">
-      {/* Patient header */}
-      <div className="report-patient-grid">
-        <div className="rpg-row">
-          <span className="rpg-label">Patient :</span> {report.patient_name || '—'}
-        </div>
-        {indication && <div className="rpg-row"><span className="rpg-label">Indication :</span> {indication}</div>}
-        <div className="rpg-row"><span className="rpg-label">Date :</span> {new Date(report.created_at).toLocaleDateString('fr-FR')}</div>
+      {/* Title */}
+      <div className="report-title-block">
+        <h2 className="report-main-title">{examType.name.toUpperCase()}</h2>
       </div>
 
-      {/* Body sections */}
-      {Object.entries(rest).map(([section, sectionData]) => {
-        if (!sectionData && !editMode) return null
-        const hasContent = sectionData && (typeof sectionData !== 'object' || Object.values(sectionData).some(v => v !== null))
-        if (!hasContent && !editMode) return null
+      {/* Patient name + date always shown */}
+      <div className="report-patient-grid">
+        {report.patient_name && (
+          <div className="rpg-row">
+            <span className="rpg-label">Patient :</span>
+            <span>{report.patient_name}</span>
+          </div>
+        )}
+        <div className="rpg-row">
+          <span className="rpg-label">Date :</span>
+          <span>{new Date(report.created_at).toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })}</span>
+        </div>
+      </div>
+
+      {/* Dynamic sections */}
+      {ordered.map(([key, value]) => {
+        const skip = (isBlank(value) && !editMode)
+        if (skip) return null
+
+        // ── Special: patient object → inline labeled rows ──
+        if (key === 'patient' && typeof value === 'object' && !Array.isArray(value)) {
+          const patEntries = Object.entries(value).filter(([, v]) => !isBlank(v) || editMode)
+          if (patEntries.length === 0 && !editMode) return null
+          return (
+            <div key={key} className="report-patient-grid" style={{ marginTop: 0 }}>
+              {patEntries.map(([pk, pv]) => (
+                <div key={pk} className="rpg-row">
+                  <span className="rpg-label">{humanLabel(pk)} :</span>
+                  <EField value={pv} onChange={v => set('patient', { ...value, [pk]: v })} editMode={editMode} />
+                </div>
+              ))}
+            </div>
+          )
+        }
+
+        // ── Special: indication → highlighted banner ──
+        if (key === 'indication') {
+          return (
+            <div key={key} className="indication-banner">
+              <span className="rpg-label">Indication : </span>
+              <EField value={value} onChange={v => set(key, v)} editMode={editMode} multiline />
+            </div>
+          )
+        }
+
+        // ── Special: mesures object → 2-column table ──
+        if (key === 'mesures' && typeof value === 'object' && !Array.isArray(value)) {
+          return (
+            <div key={key} className="report-section-numbered">
+              <div className="section-num-title">Mesures</div>
+              <MesuresTable data={value} editMode={editMode} onChange={v => set(key, v)} />
+            </div>
+          )
+        }
+
+        // ── Special: commentaires / anomalies → bullet list ──
+        if ((key === 'commentaires' || key === 'anomalies') && Array.isArray(value)) {
+          return (
+            <div key={key} className="report-section-numbered">
+              <div className="section-num-title">{humanLabel(key)}</div>
+              <ArraySection items={value} editMode={editMode} onChange={v => set(key, v)} />
+            </div>
+          )
+        }
+
+        // ── Special: conclusion → italic block ──
+        if (key === 'conclusion') {
+          const text = Array.isArray(value) ? value.join('\n') : value
+          return (
+            <div key={key} className="report-section-numbered">
+              <div className="section-num-title">Conclusion</div>
+              {editMode
+                ? <textarea className="edit-input edit-textarea" value={text ?? ''} rows={4}
+                    onChange={e => set(key, e.target.value)} style={{ width: '100%' }} />
+                : <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--text-secondary)' }}>{text}</p>
+              }
+            </div>
+          )
+        }
+
+        // ── Generic: plain string/number ──
+        if (typeof value !== 'object' || value === null) {
+          return (
+            <div key={key} className="report-section-numbered">
+              <div className="section-num-title">{humanLabel(key)}</div>
+              <EField value={value} onChange={v => set(key, v)} editMode={editMode} multiline={String(value ?? '').length > 60} />
+            </div>
+          )
+        }
+
+        // ── Generic: object or array ──
         return (
-          <div key={section} className="report-section-numbered">
-            <div className="section-num-title">{section.replace(/_/g, ' ').toUpperCase()}</div>
-            {renderValue(sectionData, [section])}
+          <div key={key} className="report-section-numbered">
+            <div className="section-num-title">{humanLabel(key)}</div>
+            {Array.isArray(value)
+              ? <ArraySection items={value} editMode={editMode} onChange={v => set(key, v)} />
+              : <ObjectSection data={value} editMode={editMode} onChange={v => set(key, v)} />
+            }
           </div>
         )
       })}
 
-      {conclusion && (
-        <div className="report-section-numbered">
-          <div className="section-num-title">CONCLUSION</div>
-          {editMode
-            ? <textarea rows={4} style={inputStyle} value={typeof conclusion === 'string' ? conclusion : JSON.stringify(conclusion)} onChange={e => onChange({ ...data, conclusion: e.target.value })} />
-            : <p style={{ margin: 0, fontStyle: 'italic' }}>{typeof conclusion === 'string' ? conclusion : JSON.stringify(conclusion)}</p>
-          }
-        </div>
-      )}
+      <div className="report-signature">Dr ___________________</div>
     </div>
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function ReportPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [report, setReport]   = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [report, setReport]     = useState(null)
+  const [loading, setLoading]   = useState(true)
   const [editMode, setEditMode] = useState(false)
   const [editData, setEditData] = useState(null)
-  const [saving, setSaving]   = useState(false)
+  const [saving, setSaving]     = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
 
@@ -347,25 +300,14 @@ export default function ReportPage() {
       await updateReport(id, { structured: editData })
       setReport(r => ({ ...r, structured: editData }))
       setEditMode(false)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function handleCancelEdit() {
-    setEditData(report.structured || {})
-    setEditMode(false)
+    } finally { setSaving(false) }
   }
 
   async function handleDelete() {
-    if (!confirm('Supprimer ce rapport définitivement ?')) return
+    if (!confirm('Supprimer ce rapport ?')) return
     setDeleting(true)
     try { await deleteReport(id); navigate('/') }
     catch { setDeleting(false) }
-  }
-
-  function handlePrint() {
-    window.print()
   }
 
   if (loading) return <div className="page" style={{ justifyContent: 'center', alignItems: 'center' }}><div className="spinner" /></div>
@@ -379,30 +321,24 @@ export default function ReportPage() {
     </div>
   )
 
-  const examType = getExamType(report.exam_type)
-
   return (
     <div className="page report-page-wrapper">
-      {/* ── Toolbar (masquée à l'impression) ── */}
+      {/* Toolbar */}
       <div className="report-toolbar no-print">
         <button className="btn-back" onClick={() => navigate('/')}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}>
-            <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12,19 5,12 12,5" />
+            <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/>
           </svg>
         </button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600 }}>{report.patient_name || 'Patient'}</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{examType.name}</div>
+          <div style={{ fontWeight: 600 }}>{report.patient_name || 'Rapport'}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{getExamType(report.exam_type).name}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {!editMode ? (
             <>
-              <button className="btn btn-secondary btn-sm" onClick={() => setEditMode(true)}>
-                ✏️ Modifier
-              </button>
-              <button className="btn btn-primary btn-sm" onClick={handlePrint}>
-                🖨️ PDF
-              </button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setEditMode(true)}>✏️ Modifier</button>
+              <button className="btn btn-primary btn-sm" onClick={() => window.print()}>🖨️ PDF</button>
               <button onClick={handleDelete} disabled={deleting} className="btn-icon-danger" style={{ padding: '6px 8px' }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}>
                   <polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14H6L5,6"/><path d="M9,6V4h6v2"/>
@@ -411,7 +347,7 @@ export default function ReportPage() {
             </>
           ) : (
             <>
-              <button className="btn btn-secondary btn-sm" onClick={handleCancelEdit}>Annuler</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setEditData(report.structured || {}); setEditMode(false) }}>Annuler</button>
               <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
                 {saving ? 'Enregistrement…' : '💾 Enregistrer'}
               </button>
@@ -420,33 +356,22 @@ export default function ReportPage() {
         </div>
       </div>
 
-      {/* ── Contenu du rapport ── */}
+      {/* Report */}
       <div className="page-content report-content">
-        {report.exam_type === 'echo_cardiaque' ? (
-          <EchoCardiaqueReport
-            report={report}
-            data={editData}
-            editMode={editMode}
-            onChange={setEditData}
-          />
-        ) : (
-          <GenericReport
-            report={report}
-            data={editData}
-            editMode={editMode}
-            onChange={setEditData}
-          />
-        )}
+        <ReportBody
+          report={report}
+          data={editData}
+          editMode={editMode}
+          onChange={setEditData}
+        />
 
-        {/* Transcription brute (repliable, masquée à l'impression) */}
+        {/* Raw transcript (collapsible, hidden on print) */}
         {report.transcript && (
-          <div style={{ marginTop: 16 }} className="no-print">
-            <button
-              onClick={() => setShowTranscript(s => !s)}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
+          <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 28px 16px' }} className="no-print">
+            <button onClick={() => setShowTranscript(s => !s)}
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
-                <polyline points={showTranscript ? '18,15 12,9 6,15' : '6,9 12,15 18,9'} />
+                <polyline points={showTranscript ? '18,15 12,9 6,15' : '6,9 12,15 18,9'}/>
               </svg>
               {showTranscript ? 'Masquer' : 'Voir'} la transcription brute
             </button>
