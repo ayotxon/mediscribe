@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+// In production, use relative paths so Vercel rewrites proxy to Railway (no CORS).
+// In dev, point directly to the local backend.
+const API_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
+  : ''
 
 let authToken = null
 export function setAuthToken(token) { authToken = token }
