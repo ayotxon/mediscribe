@@ -312,188 +312,267 @@ body {
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ============================================
-   Medical Report — Screen styles
+   Medical Report — Modern Clinical Design
    ============================================ */
 
+/* Page shell */
 .report-page-wrapper { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+.report-content.doc-page-bg {
+  flex: 1; overflow-y: auto;
+  background: #e8edf4;
+  padding: 32px 16px;
+}
 
+/* Toolbar */
 .report-toolbar {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; border-bottom: 1px solid var(--border);
-  background: var(--bg-card); flex-shrink: 0;
+  background: var(--bg-card); flex-shrink: 0; z-index: 10;
 }
-
-.report-content { flex: 1; overflow-y: auto; padding: 0; }
-
 .btn-sm { padding: 6px 14px; font-size: 0.82rem; }
-
 .btn-icon-danger {
-  background: none; border: none; color: var(--danger, #ef4444);
-  cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center;
+  background: none; border: none; color: #ef4444;
+  cursor: pointer; border-radius: var(--radius-sm);
+  display: flex; align-items: center;
 }
 .btn-icon-danger:hover { background: rgba(239,68,68,0.1); }
 
-.btn-add-item {
-  background: none; border: 1px dashed var(--border-focus);
-  color: var(--accent); border-radius: var(--radius-sm);
-  padding: 4px 10px; font-size: 0.8rem; cursor: pointer; margin-top: 6px;
+/* ── The paper document ── */
+.doc-paper {
+  background: #ffffff;
+  color: #1a202c;
+  max-width: 794px;       /* A4 width at 96dpi */
+  margin: 0 auto;
+  border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.12);
+  overflow: hidden;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-/* ── Medical Report document ── */
-.medical-report {
-  background: var(--bg-card);
-  max-width: 800px; margin: 0 auto;
-  padding: 24px 28px;
-  font-size: 0.88rem; color: var(--text-primary);
+/* Header band */
+.doc-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 20px 28px 16px;
+  background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 60%, #2563eb 100%);
+  color: #fff;
 }
+.doc-doctor-name { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.01em; }
+.doc-doctor-subtitle { font-size: 0.78rem; opacity: 0.8; margin-top: 2px; }
+.doc-header-right { text-align: right; }
+.doc-date-label { font-size: 0.7rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.06em; }
+.doc-date-value { font-size: 0.95rem; font-weight: 600; margin-top: 2px; }
 
-.report-title-block { text-align: center; margin-bottom: 16px; }
-.report-main-title {
-  font-size: 1.05rem; font-weight: 800; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--text-primary);
-  border-bottom: 2px solid var(--accent); display: inline-block; padding-bottom: 4px;
+/* Exam title bar */
+.doc-exam-title {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 28px;
+  background: #f0f4ff;
+  border-bottom: 2px solid #1d4ed8;
+  font-size: 0.95rem; font-weight: 800;
+  letter-spacing: 0.08em; color: #1e3a8a;
+  text-transform: uppercase;
 }
+.doc-exam-icon { font-size: 1.1rem; }
 
-/* Patient grid */
-.report-patient-grid {
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 10px 14px; margin-bottom: 12px;
-  display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem;
+/* Patient block */
+.doc-patient-block {
+  padding: 16px 28px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fafbfe;
 }
-.rpg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.rpg-label { font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+.doc-patient-header {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: #1d4ed8; margin-bottom: 10px;
+  padding-bottom: 4px; border-bottom: 1px solid #dbeafe;
+}
+.doc-patient-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px 20px;
+}
+.doc-patient-field { display: flex; flex-direction: column; gap: 1px; }
+.doc-field-label {
+  font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.07em;
+  color: #64748b; font-weight: 600;
+}
+.doc-field-value { font-weight: 600; color: #1a202c; font-size: 0.88rem; }
 
-.report-meta-row { display: flex; gap: 24px; margin-bottom: 14px; flex-wrap: wrap; }
-.report-meta-item { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 200px; }
+.doc-indication {
+  margin-top: 10px; display: flex; gap: 8px; align-items: baseline;
+  flex-wrap: wrap;
+}
+.doc-indication .doc-field-label { flex-shrink: 0; }
+
+/* Sections */
+.doc-section {
+  padding: 14px 28px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.doc-section:last-of-type { border-bottom: none; }
+.doc-section-conclusion {
+  background: #f8faff;
+  border-top: 2px solid #1d4ed8;
+  border-bottom: none;
+}
+.doc-section-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+}
+.doc-section-num {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #1d4ed8; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
+}
+.doc-section-title {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: #1e3a8a;
+}
+.doc-section-body { padding-left: 32px; }
 
 /* Measurement table */
-.mesures-table {
-  width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 0.84rem;
+.doc-mesures-table {
+  width: 100%; border-collapse: collapse; font-size: 0.84rem;
 }
-.mesures-table th {
-  background: var(--bg-main); color: var(--text-secondary);
-  padding: 5px 10px; text-align: left; font-weight: 600; font-size: 0.78rem;
-  border: 1px solid var(--border);
+.doc-mesures-table th {
+  background: #eff6ff; color: #1e3a8a;
+  padding: 6px 12px; text-align: left;
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 700; border: 1px solid #bfdbfe;
 }
-.mesures-table td {
-  padding: 4px 10px; border: 1px solid var(--border);
-  vertical-align: middle;
+.doc-mesures-table td {
+  padding: 5px 12px; border: 1px solid #e2e8f0; vertical-align: middle;
 }
-.param-label { font-weight: 600; margin-right: 4px; }
-.norme-cell  { color: var(--text-muted); font-size: 0.78rem; white-space: nowrap; }
-.autres-cell { padding: 8px 10px; vertical-align: top; background: rgba(255,255,255,0.02); }
+.doc-mesures-table tr:nth-child(even) td { background: #f8faff; }
+.col-param { font-weight: 600; color: #334155; width: 30%; }
+.col-val   { color: #1a202c; width: 20%; }
 
-/* Numbered sections */
-.report-section-numbered { margin-bottom: 14px; }
-.section-num-title {
-  font-weight: 700; font-size: 0.85rem; color: var(--text-primary);
-  margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 3px;
-}
-.commentaires-list {
-  margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px;
-}
-.commentaires-list li { color: var(--text-secondary); }
-
-.doppler-row {
+/* Bullet list */
+.doc-bullet-row {
   display: flex; gap: 8px; align-items: flex-start;
-  margin-bottom: 4px; padding-left: 8px;
+  padding: 3px 0; color: #374151;
 }
-.doppler-label { font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.doc-bullet { color: #1d4ed8; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+.doc-add-btn {
+  margin-top: 6px; background: none;
+  border: 1px dashed #93c5fd; color: #1d4ed8;
+  border-radius: 4px; padding: 3px 10px; font-size: 0.78rem; cursor: pointer;
+}
+.doc-remove-btn {
+  background: none; border: none; color: #ef4444;
+  cursor: pointer; font-size: 0.8rem; padding: 2px 4px;
+}
 
-.report-signature {
-  margin-top: 32px; text-align: right;
-  font-style: italic; color: var(--text-secondary); font-size: 0.85rem;
+/* Object rows */
+.doc-nested { padding-left: 12px; border-left: 2px solid #bfdbfe; margin-top: 4px; }
+.doc-obj-row {
+  display: flex; gap: 16px; align-items: flex-start;
+  padding: 4px 0; border-bottom: 1px solid #f1f5f9;
+}
+.doc-obj-row:last-child { border-bottom: none; }
+.doc-obj-label {
+  min-width: 160px; flex-shrink: 0;
+  font-size: 0.78rem; font-weight: 600; color: #475569; padding-top: 2px;
+}
+.doc-obj-val { flex: 1; color: #1a202c; }
+
+/* Conclusion */
+.doc-conclusion-text p {
+  margin: 0; font-style: italic; color: #1e3a8a; font-weight: 500;
+  line-height: 1.7;
 }
 
-/* Generic report */
-.generic-field-row {
-  display: flex; gap: 12px; align-items: flex-start;
-  padding: 3px 0; border-bottom: 1px solid var(--border);
+/* Plain values */
+.doc-plain-value { color: #1a202c; }
+.val-empty { color: #94a3b8; font-style: italic; }
+
+/* Footer / signature */
+.doc-footer {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 20px 28px 24px;
+  border-top: 1px solid #e2e8f0;
+  background: #fafbfe;
 }
-.generic-field-label {
-  font-weight: 600; color: var(--text-secondary); min-width: 140px;
-  flex-shrink: 0; font-size: 0.82rem; padding-top: 2px;
-  text-transform: capitalize;
+.doc-footer-left { font-size: 0.7rem; color: #94a3b8; }
+.doc-signature { text-align: center; }
+.doc-signature-line {
+  width: 160px; height: 1px;
+  background: #334155; margin-bottom: 6px;
+}
+.doc-signature-name { font-weight: 700; color: #1a202c; font-size: 0.88rem; }
+.doc-signature-label { font-size: 0.68rem; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Edit inputs (in-document) */
+.doc-input {
+  background: #eff6ff; border: 1px solid #93c5fd;
+  border-radius: 4px; padding: 2px 6px;
+  font-size: inherit; color: #1a202c;
+  font-family: inherit; width: 100%;
+}
+.doc-textarea { resize: vertical; min-height: 2em; }
+.doc-input:focus { outline: none; border-color: #1d4ed8; box-shadow: 0 0 0 2px rgba(29,78,216,0.15); }
+
+/* Transcript */
+.doc-transcript-wrap {
+  max-width: 794px; margin: 16px auto 0; padding: 0 4px;
+}
+.doc-transcript-toggle {
+  background: none; border: none; color: #64748b; font-size: 0.78rem;
+  cursor: pointer; display: flex; align-items: center; gap: 6px;
+}
+.doc-transcript-body {
+  margin-top: 8px; padding: 12px; background: var(--bg-card);
+  border-radius: var(--radius-sm); font-size: 0.82rem;
+  color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap;
 }
 
 /* ============================================
-   Print / PDF styles
+   Print — A4 faithful reproduction
    ============================================ */
 @media print {
-  /* Hide everything except the report */
-  .no-print, .report-toolbar, .bottom-nav, nav { display: none !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 
-  body, html { background: #fff !important; color: #000 !important; }
+  .no-print, .report-toolbar, .bottom-nav, nav,
+  .doc-transcript-wrap, .doc-add-btn, .doc-remove-btn { display: none !important; }
+
+  body, html { background: #fff !important; margin: 0; padding: 0; }
 
   .report-page-wrapper { height: auto !important; overflow: visible !important; }
-  .report-content { overflow: visible !important; padding: 0 !important; }
-
-  .medical-report {
-    background: #fff !important;
-    color: #000 !important;
-    padding: 10mm 14mm;
-    max-width: none !important;
-    font-size: 10pt;
-    font-family: 'Times New Roman', Times, serif;
+  .report-content.doc-page-bg {
+    background: #fff !important; padding: 0 !important;
+    overflow: visible !important;
   }
 
-  .report-main-title {
-    color: #000 !important;
-    border-bottom-color: #000 !important;
-    font-size: 13pt;
+  .doc-paper {
+    max-width: none !important; width: 100% !important;
+    box-shadow: none !important; border-radius: 0 !important;
+    margin: 0 !important; font-size: 11pt !important;
   }
 
-  .report-patient-grid, .report-meta-row {
-    border-color: #ccc !important;
-    color: #000 !important;
+  .doc-header {
+    background: linear-gradient(135deg, #1e40af, #2563eb) !important;
+    -webkit-print-color-adjust: exact !important;
+    padding: 14px 20px 12px !important;
   }
-  .rpg-label, .param-label, .doppler-label, .section-num-title, .generic-field-label {
-    color: #000 !important;
-  }
-  .rpg-row, .report-meta-item { color: #000 !important; }
 
-  .mesures-table, .mesures-table th, .mesures-table td {
-    border-color: #999 !important;
-    color: #000 !important;
-    background: #fff !important;
-  }
-  .mesures-table th { background: #f0f0f0 !important; }
-  .norme-cell { color: #555 !important; }
-  .autres-cell { background: #fafafa !important; }
+  .doc-exam-title { padding: 10px 20px; background: #f0f4ff !important; }
 
-  .section-num-title { border-bottom-color: #ccc !important; color: #000 !important; }
-  .commentaires-list li { color: #000 !important; }
-  .report-signature { color: #333 !important; }
-  .generic-field-row { border-bottom-color: #eee !important; }
+  .doc-patient-block, .doc-section { padding: 10px 20px; }
+  .doc-section-body { padding-left: 28px; }
+
+  .doc-mesures-table th { background: #eff6ff !important; }
+  .doc-mesures-table tr:nth-child(even) td { background: #f8faff !important; }
+
+  .doc-footer { padding: 16px 20px 20px; }
+
+  .doc-input, .doc-textarea {
+    background: transparent !important; border-color: #94a3b8 !important;
+  }
 
   @page {
-    margin: 15mm 10mm;
     size: A4 portrait;
+    margin: 12mm 10mm;
   }
-}
-
-/* ── Edit inputs ── */
-.edit-input {
-  background: rgba(59,130,246,0.08);
-  border: 1px solid rgba(59,130,246,0.4);
-  border-radius: 4px; padding: 2px 6px;
-  font-size: inherit; color: var(--text-primary);
-  font-family: inherit; width: 100%;
-}
-.edit-textarea { resize: vertical; min-height: 2em; }
-.edit-input:focus { outline: none; border-color: var(--accent); }
-
-.indication-banner {
-  background: rgba(245,158,11,0.07);
-  border: 1px solid rgba(245,158,11,0.2);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px; margin-bottom: 12px;
-  font-size: 0.85rem; display: flex; gap: 8px; align-items: flex-start;
-}
-
-/* Print overrides for new classes */
-@media print {
-  .indication-banner { background: #fffbeb !important; border-color: #d97706 !important; color: #000 !important; }
-  .edit-input, .edit-textarea { background: transparent !important; border: none !important; color: #000 !important; }
-  .param-label-cell { color: #000 !important; }
 }
