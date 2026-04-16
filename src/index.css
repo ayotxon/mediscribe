@@ -526,9 +526,95 @@ select.form-input { cursor: pointer; }
 .report-toolbar {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; border-bottom: 1px solid var(--border-color);
-  background: var(--bg-secondary); flex-shrink: 0;
+  background: var(--bg-secondary); flex-shrink: 0; flex-wrap: wrap;
 }
-.report-content { flex: 1; overflow-y: auto; background: #e8edf4; padding: 24px 12px; }
+.report-content { flex: 1; overflow-y: auto; background: #e8edf4; padding: 16px 12px; }
+
+/* ─── Medical document v2 (layout-driven, print-ready) ─── */
+.med-doc {
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 13px; color: #000; background: #fff;
+  padding: 28px 36px; max-width: 760px;
+  margin: 0 auto; line-height: 1.6;
+  box-shadow: 0 2px 20px rgba(0,0,0,0.14);
+  border-radius: 2px;
+}
+.med-letterhead {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding-bottom: 10px; margin-bottom: 14px;
+  border-bottom: 2px solid #000;
+  font-size: 13px; gap: 16px;
+}
+.med-letterhead-left  { flex: 1; min-width: 0; }
+.med-letterhead-right { text-align: right; white-space: nowrap; font-size: 12px; }
+.med-doctor-name  { font-weight: 700; font-size: 14px; text-transform: uppercase; }
+.med-doctor-info  { font-size: 12px; line-height: 1.7; color: #333; }
+
+/* Measurements table */
+.med-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 6px 0 14px; }
+.med-measurements-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+  break-inside: avoid; page-break-inside: avoid;
+  min-width: 540px;
+}
+.med-measurements-table th {
+  border: 1px solid #555; padding: 4px 10px;
+  background: #f0f0f0; font-weight: 700;
+  text-align: center; font-size: 13px;
+}
+.med-measurements-table td {
+  border: 1px solid #555; padding: 3px 10px;
+  vertical-align: middle;
+}
+.med-td-param { width: 32%; }
+.med-td-norm  { width: 18%; text-align: center; font-size: 12px; color: #444; white-space: pre-wrap; }
+
+/* Numbered sections */
+.med-section { margin-top: 14px; break-inside: avoid; page-break-inside: avoid; }
+.med-section-header {
+  font-weight: 700; margin-bottom: 5px; font-size: 13px;
+  break-after: avoid; page-break-after: avoid;
+}
+.med-section-header span.underline { text-decoration: underline; }
+.med-bullets  { margin-left: 20px; }
+.med-bullet   { margin-bottom: 2px; }
+.med-bullet-conclusion { margin-bottom: 5px; font-style: italic; font-weight: 700; }
+
+/* Edit mode inputs */
+.med-input {
+  border: 1px solid #93c5fd; border-radius: 2px;
+  padding: 1px 5px; font-size: 13px;
+  font-family: inherit; font-weight: 700;
+  background: #eff6ff; outline: none;
+}
+.med-input-light { font-weight: 400; }
+.med-btn-add {
+  border: 1px dashed #93c5fd; background: none; cursor: pointer;
+  color: #2563eb; font-size: 12px; padding: 2px 10px;
+  margin-top: 4px; margin-left: 20px; border-radius: 2px;
+  font-family: inherit;
+}
+.med-btn-remove {
+  border: none; background: none; cursor: pointer;
+  color: #ef4444; font-size: 12px; padding: 0 3px; line-height: 1;
+}
+
+/* ── Responsive breakpoints ── */
+@media (max-width: 700px) {
+  .med-doc { padding: 14px 14px; font-size: 12px; }
+  .med-letterhead { flex-direction: column; gap: 6px; }
+  .med-letterhead-right { text-align: left; }
+  .med-measurements-table { font-size: 11px; }
+  .med-measurements-table th,
+  .med-measurements-table td { padding: 2px 6px; }
+  .report-toolbar { gap: 8px; }
+  .report-toolbar .btn-sm { font-size: 0.75rem; padding: 5px 8px; }
+}
+@media (max-width: 420px) {
+  .med-doc { padding: 10px 10px; font-size: 11px; }
+  .med-doctor-name { font-size: 12px; }
+  .med-doctor-info  { font-size: 11px; }
+}
 
 /* The paper */
 .doc-paper {
@@ -800,14 +886,38 @@ select.form-input { cursor: pointer; }
 ───────────────────────────────────────────────── */
 @media print {
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  .no-print, .report-toolbar, .bottom-nav, .doc-add-btn, .doc-remove-btn, .doc-transcript-wrap { display: none !important; }
+  .no-print, .report-toolbar, .bottom-nav,
+  .doc-add-btn, .doc-remove-btn, .doc-transcript-wrap,
+  .med-btn-add, .med-btn-remove { display: none !important; }
+
   body, html { background: #fff !important; margin: 0; padding: 0; }
   .report-page-wrapper { height: auto !important; overflow: visible !important; }
   .report-content { background: #fff !important; padding: 0 !important; overflow: visible !important; }
+
+  /* Legacy doc-paper */
   .doc-paper { max-width: none !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; margin: 0 !important; }
   .doc-header { background: linear-gradient(135deg, #0f172a, #1e293b) !important; }
   .doc-mesures-table th { background: #f1f5f9 !important; }
-  .doc-mesures-table tr:nth-child(even) td { background: #f8faff !important; }
   .doc-input, .doc-textarea { background: transparent !important; border: none !important; }
-  @page { size: A4 portrait; margin: 12mm 10mm; }
+
+  /* New med-doc */
+  .med-doc {
+    max-width: none !important; width: 100% !important;
+    box-shadow: none !important; border-radius: 0 !important;
+    padding: 0 !important; margin: 0 !important;
+    font-size: 12px !important;
+  }
+  .med-table-wrap { overflow: visible !important; }
+  .med-measurements-table {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  .med-section { break-inside: avoid !important; page-break-inside: avoid !important; }
+  .med-section-header { break-after: avoid !important; page-break-after: avoid !important; }
+  .med-input { background: transparent !important; border: none !important; font-weight: 700; }
+  .med-input-light { font-weight: 400 !important; }
+
+  @page { size: A4 portrait; margin: 14mm 12mm; }
 }
