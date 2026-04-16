@@ -122,3 +122,14 @@ export async function updateReport(id, data) {
 export async function deleteReport(id) {
   return req(`/api/exam/reports/${id}`, { method: 'DELETE' })
 }
+
+// ── Patients ──────────────────────────────────────────────────────────────────
+export async function getPatients(search = '', limit = 5) {
+  const params = new URLSearchParams({ limit })
+  if (search) params.set('search', search)
+  return req(`/api/patients?${params}`)
+}
+
+export async function createPatient(data) {
+  return req('/api/patients', { method: 'POST', body: JSON.stringify(data) })
+}
