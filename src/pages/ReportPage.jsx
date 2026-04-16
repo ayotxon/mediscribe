@@ -195,44 +195,66 @@ function PatientHeader({ report, data, editMode, onChange, doctorName, showEchog
   )
 }
 
+// ── Cell item — standalone component (NOT nested) to avoid closure/remount bugs ─
+function CellItem({ item, data, editMode, onSet }) {
+  if (!item) return null
+
+  if (item.composite) {
+    const hasAny = item.items.some(ci => !isBlank(data?.[ci.key]))
+    if (!editMode && !hasAny && !item.label) return null
+    return (
+      <span>
+        {item.label ? <>{item.label} :&nbsp;</> : null}
+        {item.items.map((ci, i) => {
+          const v = data?.[ci.key]
+          if (!editMode && isBlank(v)) return null
+          return (
+            <span key={i}>
+              {ci.prefix}
+              {editMode
+                ? <input className="med-input" style={{ width: '55px' }} value={v ?? ''}
+                    onChange={e => onSet(ci.key, e.target.value)} />
+                : <strong>{v}</strong>}
+              {ci.suffix || ''}
+            </span>
+          )
+        })}
+      </span>
+    )
+  }
+
+  const v = data?.[item.key]
+  return (
+    <span>
+      {item.label ? `${item.label} :  ` : ''}
+      {editMode
+        ? <input className="med-input" style={{ width: '70px' }} value={v ?? ''}
+            onChange={e => onSet(item.key, e.target.value)} />
+        : isBlank(v) ? '' : <strong>{v}</strong>}
+    </span>
+  )
+}
+
 // ── Measurements table (4 columns, print-safe) ────────────────────────────────
 function MeasurementsTable({ section, data, editMode, onChange }) {
   const rows = section.rows || []
-  function setK(k, v) { onChange({ ...(data || {}), [k]: v }) }
+  const safeData = data || {}
+  function onSet(k, v) { onChange({ ...safeData, [k]: v }) }
 
-  function CellContent({ item }) {
-    if (!item) return null
-    if (item.composite) {
-      const hasAny = item.items.some(ci => !isBlank(data?.[ci.key]))
-      if (!editMode && !hasAny && !item.label) return null
-      return (
-        <span>
-          {item.label ? <>{item.label} :&nbsp;</> : null}
-          {item.items.map((ci, i) => {
-            const v = data?.[ci.key]
-            if (!editMode && isBlank(v)) return null
-            return (
-              <span key={i}>
-                {ci.prefix}
-                {editMode
-                  ? <input className="med-input" style={{ width: '55px' }} value={v ?? ''} onChange={e => setK(ci.key, e.target.value)} />
-                  : <strong>{v}</strong>}
-                {ci.suffix || ''}
-              </span>
-            )
-          })}
-        </span>
-      )
-    }
-    const v = data?.[item.key]
-    return (
-      <span>
-        {item.label ? `${item.label} :  ` : ''}
-        {editMode
-          ? <input className="med-input" style={{ width: '70px' }} value={v ?? ''} onChange={e => setK(item.key, e.target.value)} />
-          : isBlank(v) ? '' : <strong>{v}</strong>}
-      </span>
-    )
+  // Keys explicitly covered by defined rows
+  const coveredKeys = new Set(
+    rows.flatMap(row => row.flatMap(item => {
+      if (!item) return []
+      if (item.composite) return item.items.map(ci => ci.key)
+      return [item.key]
+    }))
+  )
+
+  // Any key in data not covered → show as extra rows so no value is lost
+  const orphanPairs = []
+  const orphanEntries = Object.entries(safeData).filter(([k, v]) => !coveredKeys.has(k) && !isBlank(v))
+  for (let i = 0; i < orphanEntries.length; i += 2) {
+    orphanPairs.push([orphanEntries[i], orphanEntries[i + 1] || null])
   }
 
   return (
@@ -247,17 +269,35 @@ function MeasurementsTable({ section, data, editMode, onChange }) {
           </tr>
         </thead>
         <tbody>
+          {/* Defined layout rows */}
           {rows.map((row, ri) => {
             const [left, right] = row
             return (
               <tr key={ri}>
-                <td className="med-td-param"><CellContent item={left} /></td>
+                <td className="med-td-param">
+                  <CellItem item={left} data={safeData} editMode={editMode} onSet={onSet} />
+                </td>
                 <td className="med-td-norm">{left?.normal || ''}</td>
-                <td className="med-td-param"><CellContent item={right} /></td>
+                <td className="med-td-param">
+                  <CellItem item={right} data={safeData} editMode={editMode} onSet={onSet} />
+                </td>
                 <td className="med-td-norm">{right?.normal || ''}</td>
               </tr>
             )
           })}
+          {/* Orphan rows: keys from backend not in defined layout */}
+          {orphanPairs.map(([left, right], ri) => (
+            <tr key={`orphan-${ri}`}>
+              <td className="med-td-param">
+                {left && <span>{hl(left[0])} :  <strong>{left[1]}</strong></span>}
+              </td>
+              <td className="med-td-norm" />
+              <td className="med-td-param">
+                {right && <span>{hl(right[0])} :  <strong>{right[1]}</strong></span>}
+              </td>
+              <td className="med-td-norm" />
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -444,6 +484,11 @@ function MedicalDocument({ report, data, editMode, onChange, profile }) {
 
   function set(key, val) { onChange({ ...safeData, [key]: val }) }
 
+  // Keys handled by the patient block (never shown as extra)
+  const PATIENT_KEYS = new Set(['patient', 'indication', 'echogenicite', 'qualite_technique'])
+  // Keys covered by the layout
+  const layoutDataKeys = new Set(layout.map(s => s.dataKey))
+
   let secNum = 0
   const RENDERERS = {
     measurements_table: (s, i) => (
@@ -485,6 +530,35 @@ function MedicalDocument({ report, data, editMode, onChange, profile }) {
         return renderer ? renderer(section, i) : null
       })}
 
+      {/* ── Fallback: show any top-level data keys not covered by layout ── */}
+      {(() => {
+        const extras = Object.entries(safeData).filter(([k, v]) =>
+          !PATIENT_KEYS.has(k) && !layoutDataKeys.has(k) && !isBlank(v)
+        )
+        if (!extras.length) return null
+        secNum++
+        return (
+          <div className="med-section" key="extras">
+            <div className="med-section-header">
+              {secNum}.{' '}
+              <span style={{ textDecoration: 'underline' }}>DONNÉES COMPLÉMENTAIRES</span> :
+            </div>
+            {extras.map(([k, v]) => (
+              <div key={k} style={{ marginLeft: 20, marginBottom: 2 }}>
+                {typeof v === 'object' && !Array.isArray(v)
+                  ? Object.entries(v || {}).filter(([, sv]) => !isBlank(sv)).map(([sk, sv]) => (
+                      <div key={sk}>- <strong>{hl(k)} / {hl(sk)} :</strong> <strong>{String(sv)}</strong></div>
+                    ))
+                  : Array.isArray(v)
+                  ? v.filter(x => !isBlank(x)).map((x, i) => <div key={i}>- <strong>{hl(k)} :</strong> {x}</div>)
+                  : <div>- <strong>{hl(k)} :</strong> <strong>{String(v)}</strong></div>
+                }
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
       {/* ── Signature ── */}
       <div style={{ marginTop: 32, display: 'flex', justifyContent: 'flex-end', flexDirection: 'column', alignItems: 'flex-end' }}>
         <div style={{ fontWeight: 700, fontSize: '13px' }}>{doctorName || 'Dr ___________________'}</div>
@@ -514,7 +588,18 @@ export default function ReportPage() {
 
   useEffect(() => {
     getReport(id)
-      .then(d => { setReport(d); setEditData(d.structured || {}) })
+      .then(d => {
+        setReport(d)
+        // structured may arrive as a JSON string from some backends
+        const raw = d.structured
+        let parsed = {}
+        if (raw && typeof raw === 'string') {
+          try { parsed = JSON.parse(raw) } catch { parsed = {} }
+        } else if (raw && typeof raw === 'object') {
+          parsed = raw
+        }
+        setEditData(parsed)
+      })
       .catch(() => setReport(null))
       .finally(() => setLoading(false))
   }, [id])
