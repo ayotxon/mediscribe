@@ -3,19 +3,32 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getReports } from '../services/api.js'
 import { getExamType } from '../data/examTypes.js'
+import { countPending, retryPending } from '../services/pendingQueue.js'
 
 export default function HomePage() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
+  const [pendingCount, setPendingCount] = useState(0)
+  const [retrying, setRetrying] = useState(false)
 
   useEffect(() => {
     getReports()
       .then(data => setReports(data?.reports || []))
       .catch(() => setReports([]))
       .finally(() => setLoading(false))
+    setPendingCount(countPending())
   }, [])
+
+  async function handleRetry() {
+    setRetrying(true)
+    await retryPending()
+    setPendingCount(countPending())
+    // Reload reports after retry
+    getReports().then(data => setReports(data?.reports || [])).catch(() => {})
+    setRetrying(false)
+  }
 
   function formatDate(iso) {
     if (!iso) return ''
@@ -89,6 +102,28 @@ export default function HomePage() {
             <div className="stat-label">Total rapports</div>
           </div>
         </div>
+
+        {/* ── Pending queue banner ── */}
+        {pendingCount > 0 && (
+          <div className="pending-banner animate-fade-in">
+            <div className="pending-banner-icon">📥</div>
+            <div className="pending-banner-text">
+              <span className="pending-banner-title">
+                {pendingCount} enregistrement{pendingCount > 1 ? 's' : ''} en attente
+              </span>
+              <span className="pending-banner-sub">
+                Sauvegardé{pendingCount > 1 ? 's' : ''} localement, en attente de traitement
+              </span>
+            </div>
+            <button
+              className="pending-banner-btn"
+              onClick={handleRetry}
+              disabled={retrying}
+            >
+              {retrying ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : 'Réessayer'}
+            </button>
+          </div>
+        )}
 
         {/* ── Hero CTA ── */}
         <button className="hero-cta animate-fade-in" onClick={() => navigate('/read')}>

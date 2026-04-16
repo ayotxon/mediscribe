@@ -55,6 +55,7 @@ async function req(path, options = {}) {
 export async function transcribeAudio(audioBlob) {
   const form = new FormData()
   form.append('audio', audioBlob, 'recording.webm')
+  form.append('language', 'fr') // MediScribe is always French
 
   const res = await fetch(`${BASE}/api/transcribe`, {
     method: 'POST',

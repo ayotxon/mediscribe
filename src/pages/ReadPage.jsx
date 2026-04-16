@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EXAM_TYPE_LIST } from '../data/examTypes.js'
 import { transcribeAudio, structureExam, saveReport, getPatients, createPatient } from '../services/api.js'
+import { enqueuePending } from '../services/pendingQueue.js'
 import { useAuth } from '../context/AuthContext.jsx'
 
 const STEP = {
@@ -12,6 +13,7 @@ const STEP = {
   STRUCTURING:  'structuring',
   SAVING:       'saving',
   DONE:         'done',
+  QUEUED:       'queued',  // saved locally, will retry
   ERROR:        'error'
 }
 
@@ -139,15 +141,33 @@ export default function ReadPage() {
   }
 
   async function processAudio(blob) {
+    const patientName = selectedPatient
+      ? `${selectedPatient.first_name} ${selectedPatient.last_name}`
+      : patientQuery || null
+
+    const meta = {
+      examTypeId:  selectedType.id,
+      patientName,
+      patientId:   selectedPatient?.id || null,
+      indication:  indication || null,
+      userId:      user?.id
+    }
+
+    // If offline, queue immediately without trying
+    if (!navigator.onLine) {
+      await enqueuePending(blob, meta)
+      setStep(STEP.QUEUED)
+      return
+    }
+
     try {
       setStep(STEP.TRANSCRIBING)
       const { text } = await transcribeAudio(blob)
+
       setStep(STEP.STRUCTURING)
       const { structured } = await structureExam(text, selectedType.id)
+
       setStep(STEP.SAVING)
-      const patientName = selectedPatient
-        ? `${selectedPatient.first_name} ${selectedPatient.last_name}`
-        : patientQuery || null
       const report = await saveReport({
         exam_type:    selectedType.id,
         patient_name: patientName,
@@ -160,9 +180,43 @@ export default function ReadPage() {
       setReportId(report.id)
       setStep(STEP.DONE)
     } catch (err) {
-      setError(err.message)
-      setStep(STEP.ERROR)
+      // Save locally and retry later instead of losing the recording
+      try {
+        await enqueuePending(blob, meta)
+        setStep(STEP.QUEUED)
+      } catch {
+        setError(err.message)
+        setStep(STEP.ERROR)
+      }
     }
+  }
+
+  // ── QUEUED ───────────────────────────────────────────────────────────────────
+  if (step === STEP.QUEUED) {
+    return (
+      <div className="page" style={{ justifyContent: 'center', padding: 24 }}>
+        <div className="animate-fade-in" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '3.5rem', marginBottom: 16 }}>📥</div>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 8 }}>
+            Enregistrement sauvegardé
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: 8, fontSize: '0.9rem' }}>
+            L'audio a été enregistré localement.
+          </p>
+          <p style={{ color: 'var(--text-muted)', marginBottom: 32, fontSize: '0.82rem' }}>
+            Le traitement reprendra automatiquement dès que la connexion sera rétablie.
+          </p>
+          <button className="btn btn-primary" style={{ marginBottom: 12 }}
+            onClick={() => navigate('/')}>
+            Retour à l'accueil
+          </button>
+          <button className="btn btn-secondary"
+            onClick={() => { setStep(STEP.SETUP) }}>
+            Nouveau rapport
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // ── DONE ────────────────────────────────────────────────────────────────────

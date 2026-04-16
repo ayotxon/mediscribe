@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext.jsx'
 import { setRefreshFn } from './services/api.js'
+import { startOnlineWatcher } from './services/pendingQueue.js'
 import LoginPage from './pages/LoginPage.jsx'
 import HomePage from './pages/HomePage.jsx'
 import ReadPage from './pages/ReadPage.jsx'
@@ -18,10 +19,12 @@ function ProtectedRoute({ children }) {
 export default function App() {
   const { refreshAccessToken } = useAuth()
 
-  // Wire the refresh function into the api module for auto-refresh on TOKEN_EXPIRED
   useEffect(() => {
     setRefreshFn(refreshAccessToken)
   }, [refreshAccessToken])
+
+  // Start watching for connection restore to retry pending recordings
+  useEffect(() => { startOnlineWatcher() }, [])
 
   return (
     <Routes>
