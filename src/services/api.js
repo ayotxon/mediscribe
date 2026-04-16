@@ -90,10 +90,16 @@ export async function transcribeAudio(audioBlob) {
 }
 
 // ── Structuration ─────────────────────────────────────────────────────────────
-export async function structureExam(transcript, examTypeId) {
+export async function structureExam(transcript, examTypeId, prompt) {
   return req('/api/exam/structure', {
     method: 'POST',
-    body: JSON.stringify({ transcript, examTypeId })
+    body: JSON.stringify({
+      transcript,
+      examTypeId,
+      prompt,
+      model: 'claude-opus-4-7',
+      language: 'fr'
+    })
   })
 }
 

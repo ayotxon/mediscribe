@@ -44,6 +44,10 @@ export default function ReadPage() {
   const audioChunksRef   = useRef([])
   const streamRef        = useRef(null)
   const timerRef         = useRef(null)
+  const canvasRef        = useRef(null)
+  const analyserRef      = useRef(null)
+  const audioCtxRef      = useRef(null)
+  const animFrameRef     = useRef(null)
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -59,6 +63,8 @@ export default function ReadPage() {
   useEffect(() => {
     return () => {
       clearInterval(timerRef.current)
+      cancelAnimationFrame(animFrameRef.current)
+      audioCtxRef.current?.close()
       streamRef.current?.getTracks().forEach(t => t.stop())
     }
   }, [])
@@ -111,6 +117,56 @@ export default function ReadPage() {
     return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
   }
 
+  function startWaveform(stream) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext
+    if (!AudioCtx) return
+    const audioCtx = new AudioCtx()
+    const source = audioCtx.createMediaStreamSource(stream)
+    const analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 64
+    analyser.smoothingTimeConstant = 0.75
+    source.connect(analyser)
+    audioCtxRef.current = audioCtx
+    analyserRef.current = analyser
+
+    const bufferLength = analyser.frequencyBinCount
+    const dataArray = new Uint8Array(bufferLength)
+
+    function draw() {
+      animFrameRef.current = requestAnimationFrame(draw)
+      const canvas = canvasRef.current
+      if (!canvas) return
+      analyser.getByteFrequencyData(dataArray)
+      const ctx = canvas.getContext('2d')
+      const W = canvas.width, H = canvas.height
+      ctx.clearRect(0, 0, W, H)
+      const total = bufferLength
+      const barW = (W / total) * 0.7
+      const gap = (W / total) * 0.3
+      for (let i = 0; i < total; i++) {
+        const amp = dataArray[i] / 255
+        const bh = Math.max(3, amp * H * 0.85)
+        const x = i * (barW + gap)
+        const y = (H - bh) / 2
+        const alpha = 0.25 + amp * 0.75
+        ctx.fillStyle = `rgba(220,38,38,${alpha})`
+        ctx.beginPath()
+        ctx.roundRect(x, y, barW, bh, 2)
+        ctx.fill()
+      }
+    }
+    draw()
+  }
+
+  function stopWaveform() {
+    cancelAnimationFrame(animFrameRef.current)
+    audioCtxRef.current?.close()
+    audioCtxRef.current = null
+    analyserRef.current = null
+    const canvas = canvasRef.current
+    if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
+  }
+
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -124,6 +180,7 @@ export default function ReadPage() {
       setDuration(0)
       setStep(STEP.RECORDING)
       timerRef.current = setInterval(() => setDuration(d => d + 1), 1000)
+      startWaveform(stream)
     } catch (err) {
       setError('Impossible d\'accéder au microphone: ' + err.message)
       setStep(STEP.ERROR)
@@ -132,6 +189,7 @@ export default function ReadPage() {
 
   async function stopRecording() {
     clearInterval(timerRef.current)
+    stopWaveform()
     streamRef.current?.getTracks().forEach(t => t.stop())
     const recorder = mediaRecorderRef.current
     if (!recorder || recorder.state === 'inactive') return
@@ -147,6 +205,7 @@ export default function ReadPage() {
 
     const meta = {
       examTypeId:  selectedType.id,
+      prompt:      selectedType.prompt,
       patientName,
       patientId:   selectedPatient?.id || null,
       indication:  indication || null,
@@ -165,7 +224,7 @@ export default function ReadPage() {
       const { text } = await transcribeAudio(blob)
 
       setStep(STEP.STRUCTURING)
-      const { structured } = await structureExam(text, selectedType.id)
+      const { structured } = await structureExam(text, selectedType.id, selectedType.prompt)
 
       setStep(STEP.SAVING)
       const report = await saveReport({
@@ -532,6 +591,21 @@ export default function ReadPage() {
           <div className="animate-fade-in">
             <div className="record-area">
               <div className="record-timer">{formatDuration(duration)}</div>
+
+              {/* Waveform visualizer */}
+              <div style={{
+                width: '100%', height: 64, margin: '12px 0',
+                background: 'rgba(220,38,38,0.06)', borderRadius: 12,
+                overflow: 'hidden', display: 'flex', alignItems: 'center'
+              }}>
+                <canvas
+                  ref={canvasRef}
+                  width={320}
+                  height={64}
+                  style={{ width: '100%', height: '100%' }}
+                />
+              </div>
+
               <button className="record-btn recording" onClick={stopRecording}>
                 <svg viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="6" width="12" height="12" rx="2"/>

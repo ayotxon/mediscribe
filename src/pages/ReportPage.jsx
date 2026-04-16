@@ -125,9 +125,9 @@ const SECTION_ORDER = [
 
 function MedicalDocument({ report, data, editMode, onChange, doctorName }) {
   const examType = getExamType(report.exam_type)
-  function set(k, v) { onChange({ ...data, [k]: v }) }
+  function set(k, v) { onChange({ ...(data || {}), [k]: v }) }
 
-  const entries = Object.entries(data)
+  const entries = Object.entries(data || {})
   const ordered = [
     ...SECTION_ORDER.map(k => entries.find(([key]) => key === k)).filter(Boolean),
     ...entries.filter(([k]) => !SECTION_ORDER.includes(k))
@@ -255,7 +255,7 @@ export default function ReportPage() {
   const [report, setReport]     = useState(null)
   const [loading, setLoading]   = useState(true)
   const [editMode, setEditMode] = useState(false)
-  const [editData, setEditData] = useState(null)
+  const [editData, setEditData] = useState({})
   const [saving, setSaving]     = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
 

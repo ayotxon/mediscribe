@@ -15,10 +15,13 @@ export const EXAM_TYPES = {
     color: '#ef4444',
     description: 'Doppler cardiaque, mesures des cavités',
     sections: ['Mesures', 'Doppler', 'Commentaires', 'Conclusion'],
-    prompt: `Tu es un médecin spécialiste en imagerie cardiaque.
-Extrait et structure les données de cette dictée d'échographie cardiaque en JSON strict.
+    prompt: `Tu es un médecin spécialiste en imagerie cardiaque. Tu structures une dictée d'échographie.
 
-IMPORTANT: N'invente aucune valeur. Si une valeur n'est pas mentionnée, mets null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -63,10 +66,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#f97316',
     description: 'Foie, vésicule, reins, rate, pancréas',
     sections: ['Organes', 'Observations', 'Conclusion'],
-    prompt: `Tu es un médecin spécialiste en échographie abdominale.
-Extrait et structure les données de cette dictée en JSON strict.
+    prompt: `Tu es un médecin spécialiste en échographie abdominale. Tu structures une dictée.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -96,10 +102,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#ec4899',
     description: 'Grossesse, biométrie fœtale, placenta',
     sections: ['Biométrie', 'Morphologie', 'Annexes', 'Conclusion'],
-    prompt: `Tu es un médecin spécialiste en échographie obstétricale.
-Extrait et structure les données de cette dictée en JSON strict.
+    prompt: `Tu es un médecin spécialiste en échographie obstétricale. Tu structures une dictée.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -150,10 +159,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#6366f1',
     description: 'Radio pulmonaire, osseuse, abdominale',
     sections: ['Technique', 'Analyse', 'Conclusion'],
-    prompt: `Tu es un radiologue.
-Extrait et structure les données de cette dictée radiologique en JSON strict.
+    prompt: `Tu es un radiologue. Tu structures une dictée radiologique.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -185,10 +197,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#0ea5e9',
     description: 'Tomodensitométrie, coupes axiales',
     sections: ['Technique', 'Résultats', 'Conclusion'],
-    prompt: `Tu es un radiologue spécialisé en TDM.
-Extrait et structure les données de cette dictée scanner en JSON strict.
+    prompt: `Tu es un radiologue spécialisé en TDM. Tu structures une dictée scanner.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -217,10 +232,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#8b5cf6',
     description: 'Imagerie par résonance magnétique',
     sections: ['Technique', 'Résultats', 'Conclusion'],
-    prompt: `Tu es un radiologue spécialisé en IRM.
-Extrait et structure les données de cette dictée IRM en JSON strict.
+    prompt: `Tu es un radiologue spécialisé en IRM. Tu structures une dictée IRM.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -248,10 +266,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#10b981',
     description: 'NFS, bilan métabolique, sérologies',
     sections: ['Hématologie', 'Biochimie', 'Autres', 'Interprétation'],
-    prompt: `Tu es un biologiste médical.
-Extrait et structure les données de ce bilan biologique en JSON strict.
+    prompt: `Tu es un biologiste médical. Tu structures une dictée de bilan biologique.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -289,10 +310,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#f59e0b',
     description: 'Électroencéphalogramme',
     sections: ['Tracé', 'Anomalies', 'Conclusion'],
-    prompt: `Tu es un neurologue spécialisé en EEG.
-Extrait et structure les données de cette dictée EEG en JSON strict.
+    prompt: `Tu es un neurologue spécialisé en EEG. Tu structures une dictée EEG.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {
@@ -315,10 +339,13 @@ Retourne UNIQUEMENT ce JSON:
     color: '#64748b',
     description: 'EMG, endoscopie, anatomopathologie...',
     sections: ['Résultats', 'Conclusion'],
-    prompt: `Tu es un médecin spécialiste.
-Extrait et structure les données de cette dictée médicale en JSON strict.
+    prompt: `Tu es un médecin spécialiste. Tu structures une dictée médicale.
 
-N'invente aucune valeur. Si non mentionnée: null.
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
 
 Retourne UNIQUEMENT ce JSON:
 {

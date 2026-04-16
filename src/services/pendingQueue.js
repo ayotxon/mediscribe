@@ -95,7 +95,7 @@ export async function retryPending() {
       const { text } = await transcribeAudio(blob)
 
       _onProgress?.(entry.id, 'structuring')
-      const { structured } = await structureExam(text, entry.meta.examTypeId)
+      const { structured } = await structureExam(text, entry.meta.examTypeId, entry.meta.prompt)
 
       _onProgress?.(entry.id, 'saving')
       const report = await saveReport({
