@@ -81,13 +81,18 @@ function EF({ val, onChange, editMode, multi = false, w = '80px', light = false 
 }
 
 // ── Doctor letterhead ─────────────────────────────────────────────────────────
-function DoctorLetterhead({ profile, createdAt }) {
-  if (!profile) return null
-  const parts = [profile.first_name, profile.last_name].filter(Boolean)
-  if (!parts.length && !profile.email) return null
+function DoctorLetterhead({ profile, createdAt, fallbackEmail }) {
+  const p = profile || {}
+  const parts = [p.first_name, p.last_name].filter(Boolean)
+  const email = p.email || fallbackEmail || null
+  const hasAnything = parts.length || email || p.specialty || p.specialite
 
-  const name = parts.length ? `Dr ${parts.join(' ')}` : null
-  const city = profile.city || profile.ville || null
+  if (!hasAnything) return null
+
+  const name = parts.length
+    ? `Dr ${parts.join(' ')}`
+    : email ? `Dr ${email.split('@')[0]}` : null
+  const city = p.city || p.ville || null
   const dateStr = formatDate(createdAt)
 
   return (
@@ -95,17 +100,15 @@ function DoctorLetterhead({ profile, createdAt }) {
       <div className="med-letterhead-left">
         {name && <div className="med-doctor-name">{name}</div>}
         <div className="med-doctor-info">
-          {profile.specialty && <div>{profile.specialty}</div>}
-          {profile.specialite && <div>{profile.specialite}</div>}
-          {profile.address && <div>{profile.address}</div>}
-          {profile.adresse && <div>{profile.adresse}</div>}
-          {(profile.phone || profile.telephone) &&
-            <div>Tél : {profile.phone || profile.telephone}</div>}
-          {profile.email && <div>Email : {profile.email}</div>}
-          {(profile.rpps || profile.ordre) &&
+          {(p.specialty || p.specialite) && <div>{p.specialty || p.specialite}</div>}
+          {(p.address || p.adresse) && <div>{p.address || p.adresse}</div>}
+          {(p.phone || p.telephone) && <div>Tél : {p.phone || p.telephone}</div>}
+          {email && <div>Email : {email}</div>}
+          {(p.rpps || p.ordre) && (
             <div style={{ marginTop: 2, fontSize: '11px', color: '#555' }}>
-              {profile.rpps ? `RPPS : ${profile.rpps}` : `N° Ordre : ${profile.ordre}`}
-            </div>}
+              {p.rpps ? `RPPS : ${p.rpps}` : `N° Ordre : ${p.ordre}`}
+            </div>
+          )}
         </div>
       </div>
       <div className="med-letterhead-right">
@@ -471,16 +474,17 @@ function SectionBiology({ num, section, data, editMode, onChange }) {
 }
 
 // ── Medical document orchestrator ─────────────────────────────────────────────
-function MedicalDocument({ report, data, editMode, onChange, profile }) {
+function MedicalDocument({ report, data, editMode, onChange, profile, userEmail }) {
   const examType = getExamType(report.exam_type)
   const safeData = data || {}
   const layout = examType.layout || []
 
-  // Doctor display name
+  // Doctor display name — fallback chain: profile name → profile email → user email → placeholder
   const parts = [profile?.first_name, profile?.last_name].filter(Boolean)
+  const resolvedEmail = profile?.email || userEmail || null
   const doctorName = parts.length
     ? `Dr ${parts.join(' ')}`
-    : profile?.email ? `Dr ${profile.email.split('@')[0]}` : ''
+    : resolvedEmail ? `Dr ${resolvedEmail.split('@')[0]}` : ''
 
   function set(key, val) { onChange({ ...safeData, [key]: val }) }
 
@@ -507,7 +511,7 @@ function MedicalDocument({ report, data, editMode, onChange, profile }) {
     <div id="print-area" className="med-doc">
 
       {/* ── Doctor letterhead ── */}
-      <DoctorLetterhead profile={profile} createdAt={report.created_at} />
+      <DoctorLetterhead profile={profile} createdAt={report.created_at} fallbackEmail={userEmail} />
 
       {/* ── Exam title ── */}
       <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '15px', textDecoration: 'underline', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '16px' }}>
@@ -560,14 +564,26 @@ function MedicalDocument({ report, data, editMode, onChange, profile }) {
       })()}
 
       {/* ── Signature ── */}
-      <div style={{ marginTop: 32, display: 'flex', justifyContent: 'flex-end', flexDirection: 'column', alignItems: 'flex-end' }}>
-        <div style={{ fontWeight: 700, fontSize: '13px' }}>{doctorName || 'Dr ___________________'}</div>
-        {profile?.specialty && <div style={{ fontSize: '11px', color: '#333', marginTop: 2 }}>{profile.specialty}</div>}
-        {profile?.specialite && <div style={{ fontSize: '11px', color: '#333', marginTop: 2 }}>{profile.specialite}</div>}
-        <div style={{ width: '160px', borderTop: '1px solid #000', marginTop: 28, paddingTop: '4px', textAlign: 'center', fontSize: '11px', color: '#555' }}>
-          Signature &amp; Cachet
+      <div style={{ marginTop: 40, display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ textAlign: 'center', minWidth: 180 }}>
+          <div style={{ height: 48, borderBottom: '1px solid #000', marginBottom: 6 }} />
+          <div style={{ fontWeight: 700, fontSize: '13px' }}>
+            {doctorName || 'Dr ___________________'}
+          </div>
+          {(profile?.specialty || profile?.specialite) && (
+            <div style={{ fontSize: '11px', color: '#444', marginTop: 2 }}>
+              {profile.specialty || profile.specialite}
+            </div>
+          )}
+          {(profile?.rpps || profile?.ordre) && (
+            <div style={{ fontSize: '10px', color: '#666', marginTop: 2 }}>
+              {profile.rpps ? `RPPS : ${profile.rpps}` : `N° Ordre : ${profile.ordre}`}
+            </div>
+          )}
+          <div style={{ fontSize: '11px', color: '#888', marginTop: 4 }}>
+            Signature &amp; Cachet
+          </div>
         </div>
-        <div style={{ fontSize: '10px', color: '#aaa', marginTop: 6 }}>Généré par MediScribe</div>
       </div>
 
     </div>
@@ -675,6 +691,7 @@ export default function ReportPage() {
           editMode={editMode}
           onChange={setEditData}
           profile={user?.profile || null}
+          userEmail={user?.email || null}
         />
 
         {report.transcript && (
