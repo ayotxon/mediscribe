@@ -36,6 +36,9 @@ export default function ReadPage() {
   const [patients, setPatients] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  const [showPatientSheet, setShowPatientSheet] = useState(false)
+  const [recentPatients, setRecentPatients] = useState([])
+  const [loadingRecent, setLoadingRecent] = useState(false)
   const [showNewPatientForm, setShowNewPatientForm] = useState(false)
   const [newPatient, setNewPatient] = useState({ first_name: '', last_name: '', date_of_birth: '', sex: '' })
   const [creatingPatient, setCreatingPatient] = useState(false)
@@ -98,6 +101,34 @@ export default function ReadPage() {
     setShowNewPatientForm(false)
   }
 
+  function selectPatientFromSheet(p) {
+    selectPatient(p)
+    setShowPatientSheet(false)
+    setPatientQuery('')
+    setPatients([])
+  }
+
+  async function openPatientSheet() {
+    setShowPatientSheet(true)
+    setPatientQuery('')
+    setPatients([])
+    setShowNewPatientForm(false)
+    if (recentPatients.length === 0 && !loadingRecent) {
+      setLoadingRecent(true)
+      try {
+        const res = await getPatients('', 8)
+        setRecentPatients(res.patients || res || [])
+      } catch { /* no recent patients */ }
+      setLoadingRecent(false)
+    }
+  }
+
+  function closePatientSheet() {
+    setShowPatientSheet(false)
+    setPatientQuery('')
+    setPatients([])
+  }
+
   async function handleCreatePatient() {
     if (!newPatient.first_name || !newPatient.last_name) return
     setCreatingPatient(true)
@@ -105,6 +136,7 @@ export default function ReadPage() {
       const created = await createPatient(newPatient)
       selectPatient(created)
       setNewPatient({ first_name: '', last_name: '', date_of_birth: '', sex: '' })
+      setShowPatientSheet(false)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -373,14 +405,14 @@ export default function ReadPage() {
         {step === STEP.SETUP && (
           <div className="animate-fade-in">
 
-            {/* Patient search */}
-            <div className="patient-search" ref={dropdownRef}>
+            {/* Patient — bottom sheet trigger */}
+            <div style={{ marginBottom: 20 }}>
               <label className="search-label">
                 Patient <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optionnel)</span>
               </label>
 
               {selectedPatient ? (
-                <div className="selected-patient-pill">
+                <div className="selected-patient-pill" style={{ cursor: 'pointer' }} onClick={openPatientSheet}>
                   <div className="selected-patient-avatar">
                     {selectedPatient.first_name[0]}{selectedPatient.last_name[0]}
                   </div>
@@ -394,114 +426,164 @@ export default function ReadPage() {
                       </span>
                     )}
                   </div>
-                  <button className="selected-patient-clear" onClick={() => {
+                  <button className="selected-patient-clear" onClick={e => {
+                    e.stopPropagation()
                     setSelectedPatient(null); setPatientQuery(''); setPatients([])
                   }}>✕</button>
                 </div>
               ) : (
-                <div className="search-input-wrapper">
-                  <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <button className="patient-trigger" onClick={openPatientSheet}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                    style={{ width: 16, height: 16, flexShrink: 0 }}>
                     <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                   </svg>
-                  <input
-                    type="text"
-                    className="search-input"
-                    value={patientQuery}
-                    onChange={handlePatientQueryChange}
-                    onFocus={() => setShowDropdown(true)}
-                    placeholder="Rechercher ou créer un patient…"
-                  />
-                  {isSearching && <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, position: 'absolute', right: 12 }} />}
-                </div>
-              )}
-
-              {/* Dropdown */}
-              {showDropdown && !selectedPatient && (
-                <div className="patient-dropdown">
-                  {patients.map(p => (
-                    <div key={p.id} className="dropdown-item" onClick={() => selectPatient(p)}>
-                      <div className="dropdown-avatar">
-                        {p.first_name[0]}{p.last_name[0]}
-                      </div>
-                      <div className="dropdown-info">
-                        <span className="dropdown-name">{p.first_name} {p.last_name}</span>
-                        {p.date_of_birth && (
-                          <span className="dropdown-dob">
-                            {new Date(p.date_of_birth).toLocaleDateString('fr-FR')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-
-                  {patientQuery && patients.length === 0 && !isSearching && (
-                    <div className="dropdown-empty">Aucun patient trouvé</div>
-                  )}
-
-                  {/* Create new patient option */}
-                  {!showNewPatientForm && (
-                    <div className="dropdown-create" onClick={() => setShowNewPatientForm(true)}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
-                        <circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/>
-                        <line x1="19" y1="8" x2="23" y2="8"/><line x1="21" y1="6" x2="21" y2="10"/>
-                      </svg>
-                      Créer un nouveau patient
-                    </div>
-                  )}
-
-                  {/* Inline new patient form */}
-                  {showNewPatientForm && (
-                    <div className="new-patient-form">
-                      <div className="new-patient-form-title">Nouveau patient</div>
-                      <div className="form-row">
-                        <input
-                          className="form-input-half"
-                          placeholder="Prénom *"
-                          value={newPatient.first_name}
-                          onChange={e => setNewPatient(p => ({ ...p, first_name: e.target.value }))}
-                        />
-                        <input
-                          className="form-input-half"
-                          placeholder="Nom *"
-                          value={newPatient.last_name}
-                          onChange={e => setNewPatient(p => ({ ...p, last_name: e.target.value }))}
-                        />
-                      </div>
-                      <div className="form-row">
-                        <input
-                          className="form-input-half"
-                          type="date"
-                          placeholder="Date de naissance"
-                          value={newPatient.date_of_birth}
-                          onChange={e => setNewPatient(p => ({ ...p, date_of_birth: e.target.value }))}
-                        />
-                        <select
-                          className="form-input-half"
-                          value={newPatient.sex}
-                          onChange={e => setNewPatient(p => ({ ...p, sex: e.target.value }))}
-                        >
-                          <option value="">Sexe</option>
-                          <option value="M">Masculin</option>
-                          <option value="F">Féminin</option>
-                        </select>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={handleCreatePatient}
-                          disabled={creatingPatient || !newPatient.first_name || !newPatient.last_name}
-                        >
-                          {creatingPatient ? 'Création…' : 'Créer'}
-                        </button>
-                        <button className="btn btn-secondary btn-sm" onClick={() => setShowNewPatientForm(false)}>
-                          Annuler
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  <span style={{ flex: 1 }}>Rechercher ou créer un patient…</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                    style={{ width: 16, height: 16, flexShrink: 0 }}>
+                    <polyline points="6,9 12,15 18,9"/>
+                  </svg>
+                </button>
               )}
             </div>
+
+            {/* Patient bottom sheet */}
+            {showPatientSheet && (
+              <div className="sheet-overlay" onClick={closePatientSheet}>
+                <div className="patient-sheet" onClick={e => e.stopPropagation()}>
+                  <div className="sheet-handle" />
+                  <div className="sheet-title">Patient</div>
+                  <div className="sheet-search-box">
+                    <div className="search-input-wrapper">
+                      <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                      </svg>
+                      <input
+                        type="text"
+                        className="search-input"
+                        autoFocus
+                        value={patientQuery}
+                        onChange={handlePatientQueryChange}
+                        placeholder="Rechercher un patient…"
+                      />
+                      {isSearching && (
+                        <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, position: 'absolute', right: 12 }} />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="sheet-list">
+                    {patientQuery.length >= 2 ? (
+                      <>
+                        {patients.length > 0 && <div className="sheet-section-label">Résultats</div>}
+                        {patients.map(p => (
+                          <div key={p.id} className="sheet-patient-row" onClick={() => selectPatientFromSheet(p)}>
+                            <div className="sheet-patient-avatar">{p.first_name[0]}{p.last_name[0]}</div>
+                            <div>
+                              <span className="sheet-patient-name">{p.first_name} {p.last_name}</span>
+                              {p.date_of_birth && (
+                                <span className="sheet-patient-meta">
+                                  {new Date(p.date_of_birth).toLocaleDateString('fr-FR')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {patients.length === 0 && !isSearching && (
+                          <div style={{ padding: '14px 16px', color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center' }}>
+                            Aucun patient trouvé
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {loadingRecent && (
+                          <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
+                            <div className="spinner" style={{ width: 24, height: 24 }} />
+                          </div>
+                        )}
+                        {!loadingRecent && recentPatients.length > 0 && (
+                          <>
+                            <div className="sheet-section-label">Récents</div>
+                            {recentPatients.map(p => (
+                              <div key={p.id} className="sheet-patient-row" onClick={() => selectPatientFromSheet(p)}>
+                                <div className="sheet-patient-avatar">{p.first_name[0]}{p.last_name[0]}</div>
+                                <div>
+                                  <span className="sheet-patient-name">{p.first_name} {p.last_name}</span>
+                                  {p.date_of_birth && (
+                                    <span className="sheet-patient-meta">
+                                      {new Date(p.date_of_birth).toLocaleDateString('fr-FR')}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {!showNewPatientForm && (
+                      <div className="sheet-create-row" onClick={() => setShowNewPatientForm(true)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                          <circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/>
+                          <line x1="19" y1="8" x2="23" y2="8"/><line x1="21" y1="6" x2="21" y2="10"/>
+                        </svg>
+                        Créer un nouveau patient
+                      </div>
+                    )}
+
+                    {showNewPatientForm && (
+                      <div className="sheet-create-form">
+                        <div className="new-patient-form-title">Nouveau patient</div>
+                        <div className="form-row">
+                          <input
+                            className="form-input-half"
+                            placeholder="Prénom *"
+                            value={newPatient.first_name}
+                            onChange={e => setNewPatient(p => ({ ...p, first_name: e.target.value }))}
+                          />
+                          <input
+                            className="form-input-half"
+                            placeholder="Nom *"
+                            value={newPatient.last_name}
+                            onChange={e => setNewPatient(p => ({ ...p, last_name: e.target.value }))}
+                          />
+                        </div>
+                        <div className="form-row">
+                          <input
+                            className="form-input-half"
+                            type="date"
+                            value={newPatient.date_of_birth}
+                            onChange={e => setNewPatient(p => ({ ...p, date_of_birth: e.target.value }))}
+                          />
+                          <select
+                            className="form-input-half"
+                            value={newPatient.sex}
+                            onChange={e => setNewPatient(p => ({ ...p, sex: e.target.value }))}
+                          >
+                            <option value="">Sexe</option>
+                            <option value="M">Masculin</option>
+                            <option value="F">Féminin</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={handleCreatePatient}
+                            disabled={creatingPatient || !newPatient.first_name || !newPatient.last_name}
+                          >
+                            {creatingPatient ? 'Création…' : 'Créer'}
+                          </button>
+                          <button className="btn btn-secondary btn-sm" onClick={() => setShowNewPatientForm(false)}>
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Indication */}
             <div className="form-group" style={{ marginTop: 20 }}>

@@ -25,7 +25,6 @@ export default function HomePage() {
     setRetrying(true)
     await retryPending()
     setPendingCount(countPending())
-    // Reload reports after retry
     getReports().then(data => setReports(data?.reports || [])).catch(() => {})
     setRetrying(false)
   }
@@ -44,14 +43,13 @@ export default function HomePage() {
 
   const todayCount = reports.filter(r => {
     const d = new Date(r.created_at)
-    const now = new Date()
-    return d.toDateString() === now.toDateString()
+    return d.toDateString() === new Date().toDateString()
   }).length
 
   return (
     <div className="page">
 
-      {/* ── Header ── */}
+      {/* ── Sticky header ── */}
       <header className="app-header no-print">
         <div className="app-header-left">
           <div className="app-logo">
@@ -83,12 +81,12 @@ export default function HomePage() {
 
       <div className="page-content">
 
-        {/* ── Hero greeting ── */}
+        {/* ── Greeting ── */}
         <div className="dashboard-greeting animate-fade-in">
-          <h1 className="greeting-title">
-            Bonjour, Dr {doctorName || '…'} 👋
-          </h1>
-          <p className="greeting-sub">Prêt pour dicter vos résultats d'examens ?</p>
+          <h1 className="greeting-title">Bonjour, Dr {doctorName || '…'}</h1>
+          <p className="greeting-sub">
+            {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
         </div>
 
         {/* ── Stats ── */}
@@ -103,46 +101,25 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* ── Pending queue banner ── */}
+        {/* ── Pending queue ── */}
         {pendingCount > 0 && (
-          <div className="pending-banner animate-fade-in">
+          <div className="pending-banner animate-fade-in" style={{ margin: '0 0 16px' }}>
             <div className="pending-banner-icon">📥</div>
             <div className="pending-banner-text">
               <span className="pending-banner-title">
                 {pendingCount} enregistrement{pendingCount > 1 ? 's' : ''} en attente
               </span>
-              <span className="pending-banner-sub">
-                Sauvegardé{pendingCount > 1 ? 's' : ''} localement, en attente de traitement
-              </span>
+              <span className="pending-banner-sub">Connexion rétablie → traitement automatique</span>
             </div>
-            <button
-              className="pending-banner-btn"
-              onClick={handleRetry}
-              disabled={retrying}
-            >
-              {retrying ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : 'Réessayer'}
+            <button className="pending-banner-btn" onClick={handleRetry} disabled={retrying}>
+              {retrying
+                ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                : 'Réessayer'}
             </button>
           </div>
         )}
 
-        {/* ── Hero CTA ── */}
-        <button className="hero-cta animate-fade-in" onClick={() => navigate('/read')}>
-          <div className="hero-cta-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-            </svg>
-          </div>
-          <div className="hero-cta-text">
-            <span className="hero-cta-title">Nouveau rapport</span>
-            <span className="hero-cta-sub">Dicter un résultat d'examen</span>
-          </div>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 20, height: 20, opacity: 0.7 }}>
-            <polyline points="9,18 15,12 9,6"/>
-          </svg>
-        </button>
-
-        {/* ── Rapports récents ── */}
+        {/* ── Recent reports ── */}
         <div className="section-header animate-fade-in">
           <h2 className="section-title">Rapports récents</h2>
           {reports.length > 5 && (
@@ -158,34 +135,39 @@ export default function HomePage() {
 
         {!loading && reports.length === 0 && (
           <div className="empty-state animate-fade-in">
-            <div className="empty-state-icon">📋</div>
-            <p>Aucun rapport pour l'instant.<br />Dictez votre premier résultat.</p>
+            <div className="empty-state-icon">🎙️</div>
+            <p>Aucun rapport pour l'instant.</p>
+            <button className="btn btn-primary" onClick={() => navigate('/read')}>
+              Dicter un examen
+            </button>
           </div>
         )}
 
-        <div className="reports-card animate-fade-in">
-          {!loading && reports.slice(0, 8).map(r => {
-            const examType = getExamType(r.exam_type)
-            return (
-              <Link key={r.id} to={`/report/${r.id}`} className="report-item">
-                <div className="report-item-icon" style={{ background: `${examType.color}22` }}>
-                  {examType.icon}
-                </div>
-                <div className="report-item-body">
-                  <div className="report-item-title">{r.patient_name || 'Patient inconnu'}</div>
-                  <div className="report-item-meta">{examType.name} · {formatDate(r.created_at)}</div>
-                </div>
-                <svg className="report-item-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15 }}>
-                  <polyline points="9,18 15,12 9,6"/>
-                </svg>
-              </Link>
-            )
-          })}
-        </div>
+        {!loading && reports.length > 0 && (
+          <div className="reports-card animate-fade-in">
+            {reports.slice(0, 8).map(r => {
+              const examType = getExamType(r.exam_type)
+              return (
+                <Link key={r.id} to={`/report/${r.id}`} className="report-item">
+                  <div className="report-item-icon" style={{ background: `${examType.color}22` }}>
+                    {examType.icon}
+                  </div>
+                  <div className="report-item-body">
+                    <div className="report-item-title">{r.patient_name || 'Patient inconnu'}</div>
+                    <div className="report-item-meta">{examType.name} · {formatDate(r.created_at)}</div>
+                  </div>
+                  <svg className="report-item-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15 }}>
+                    <polyline points="9,18 15,12 9,6"/>
+                  </svg>
+                </Link>
+              )
+            })}
+          </div>
+        )}
 
       </div>
 
-      {/* ── Bottom nav ── */}
+      {/* ── Bottom nav with FAB ── */}
       <nav className="bottom-nav no-print">
         <button className="nav-item active">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -194,13 +176,20 @@ export default function HomePage() {
           </svg>
           Accueil
         </button>
-        <button className="nav-item" onClick={() => navigate('/read')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-          </svg>
-          Dicter
-        </button>
+
+        <div className="nav-fab-wrap">
+          <button className="nav-fab" onClick={() => navigate('/read')} aria-label="Nouveau rapport">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            </svg>
+            {pendingCount > 0 && (
+              <span className="nav-fab-badge">{pendingCount > 9 ? '9+' : pendingCount}</span>
+            )}
+          </button>
+          <span className="nav-fab-label">Dicter</span>
+        </div>
+
         <button className="nav-item" onClick={() => navigate('/history')}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 8v4l3 3"/>
