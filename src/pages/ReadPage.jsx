@@ -5,6 +5,15 @@ import { transcribeAudio, structureExam, saveReport, getPatients, createPatient 
 import { enqueuePending } from '../services/pendingQueue.js'
 import { useAuth } from '../context/AuthContext.jsx'
 
+function isNetworkError(err) {
+  if (!navigator.onLine) return true
+  if (err instanceof TypeError) {
+    const msg = err.message.toLowerCase()
+    return msg.includes('failed to fetch') || msg.includes('load failed') || msg.includes('network request failed')
+  }
+  return false
+}
+
 const STEP = {
   SETUP:        'setup',
   READY:        'ready',
@@ -271,12 +280,17 @@ export default function ReadPage() {
       setReportId(report.id)
       setStep(STEP.DONE)
     } catch (err) {
-      // Save locally and retry later instead of losing the recording
-      try {
-        await enqueuePending(blob, meta)
-        setStep(STEP.QUEUED)
-      } catch {
-        setError(err.message)
+      // Only queue locally when the failure is a network/connectivity issue
+      if (isNetworkError(err)) {
+        try {
+          await enqueuePending(blob, meta)
+          setStep(STEP.QUEUED)
+        } catch {
+          setError(err.message)
+          setStep(STEP.ERROR)
+        }
+      } else {
+        setError(err.message || 'Une erreur est survenue lors du traitement.')
         setStep(STEP.ERROR)
       }
     }

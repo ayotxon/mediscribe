@@ -65,6 +65,14 @@ function removeFromQueue(id) {
   save(load().filter(e => e.id !== id))
 }
 
+export function removePendingItem(id) {
+  removeFromQueue(id)
+}
+
+export function clearPending() {
+  save([])
+}
+
 function incrementAttempts(id) {
   const queue = load()
   const entry = queue.find(e => e.id === id)
