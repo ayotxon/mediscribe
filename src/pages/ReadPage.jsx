@@ -38,6 +38,9 @@ export default function ReadPage() {
   const [error, setError] = useState(null)
   const [duration, setDuration] = useState(0)
   const [reportId, setReportId] = useState(null)
+  // Saved after transcription so structuring can be retried without re-recording
+  const [savedTranscript, setSavedTranscript] = useState(null)
+  const [savedMeta, setSavedMeta] = useState(null)
 
   // Patient search
   const [patientQuery, setPatientQuery] = useState('')
@@ -60,6 +63,7 @@ export default function ReadPage() {
   const analyserRef      = useRef(null)
   const audioCtxRef      = useRef(null)
   const animFrameRef     = useRef(null)
+  const processingRef    = useRef(false)  // prevents double-tap stop
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -229,14 +233,23 @@ export default function ReadPage() {
   }
 
   async function stopRecording() {
+    // Guard against double-tap — a second call while processing is a no-op
+    if (processingRef.current) return
+    processingRef.current = true
+
     clearInterval(timerRef.current)
     stopWaveform()
     streamRef.current?.getTracks().forEach(t => t.stop())
     const recorder = mediaRecorderRef.current
-    if (!recorder || recorder.state === 'inactive') return
+    if (!recorder || recorder.state === 'inactive') {
+      processingRef.current = false
+      return
+    }
     await new Promise(resolve => { recorder.onstop = resolve; recorder.stop() })
-    const blob = new Blob(audioChunksRef.current, { type: audioChunksRef.current[0]?.type || 'audio/webm' })
+    const mimeType = audioChunksRef.current[0]?.type || 'audio/webm'
+    const blob = new Blob(audioChunksRef.current, { type: mimeType })
     await processAudio(blob)
+    processingRef.current = false
   }
 
   async function processAudio(blob) {
@@ -255,8 +268,13 @@ export default function ReadPage() {
 
     // If offline, queue immediately without trying
     if (!navigator.onLine) {
-      await enqueuePending(blob, meta)
-      setStep(STEP.QUEUED)
+      try {
+        await enqueuePending(blob, meta)
+        setStep(STEP.QUEUED)
+      } catch (err) {
+        setError(err.message)
+        setStep(STEP.ERROR)
+      }
       return
     }
 
@@ -264,33 +282,54 @@ export default function ReadPage() {
       setStep(STEP.TRANSCRIBING)
       const { text } = await transcribeAudio(blob)
 
-      setStep(STEP.STRUCTURING)
-      const { structured } = await structureExam(text, selectedType.id, selectedType.prompt)
+      // Save transcript immediately — if structuring fails we can retry
+      // without asking the doctor to re-record
+      setSavedTranscript(text)
+      setSavedMeta(meta)
 
-      setStep(STEP.SAVING)
-      const report = await saveReport({
-        exam_type:    selectedType.id,
-        patient_name: patientName,
-        patient_id:   selectedPatient?.id || null,
-        indication:   indication || null,
-        transcript:   text,
-        structured,
-        user_id:      user?.id
-      })
-      setReportId(report.id)
-      setStep(STEP.DONE)
+      await structureAndSave(text, meta)
     } catch (err) {
-      // Only queue locally when the failure is a network/connectivity issue
       if (isNetworkError(err)) {
         try {
           await enqueuePending(blob, meta)
           setStep(STEP.QUEUED)
-        } catch {
-          setError(err.message)
+        } catch (queueErr) {
+          setError(queueErr.message)
           setStep(STEP.ERROR)
         }
       } else {
-        setError(err.message || 'Une erreur est survenue lors du traitement.')
+        setError(err.message || 'Erreur de transcription.')
+        setStep(STEP.ERROR)
+      }
+    }
+  }
+
+  // Structuring + saving — can be called independently if transcription already succeeded
+  async function structureAndSave(text, meta) {
+    try {
+      setStep(STEP.STRUCTURING)
+      const { structured } = await structureExam(text, meta.examTypeId, meta.prompt)
+
+      setStep(STEP.SAVING)
+      const report = await saveReport({
+        exam_type:    meta.examTypeId,
+        patient_name: meta.patientName,
+        patient_id:   meta.patientId || null,
+        indication:   meta.indication || null,
+        transcript:   text,
+        structured,
+        user_id:      meta.userId
+      })
+      setReportId(report.id)
+      setStep(STEP.DONE)
+    } catch (err) {
+      if (isNetworkError(err)) {
+        // We have the transcript — queue with it so no audio needed on retry
+        // (pendingQueue will re-structure from saved text on next retry)
+        setError('Connexion perdue après la transcription. Reconnectez-vous et réessayez depuis l\'accueil.')
+        setStep(STEP.ERROR)
+      } else {
+        setError(err.message || 'Erreur lors de la structuration ou de la sauvegarde.')
         setStep(STEP.ERROR)
       }
     }
@@ -388,9 +427,28 @@ export default function ReadPage() {
         <div className="animate-fade-in" style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '3rem', marginBottom: 16 }}>❌</div>
           <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 8 }}>Erreur</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: 32, fontSize: '0.9rem' }}>{error}</p>
-          <button className="btn btn-primary" onClick={() => { setStep(STEP.SETUP); setError(null) }}>
-            Réessayer
+          <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: '0.9rem', lineHeight: 1.5 }}>{error}</p>
+
+          {/* If transcription succeeded, offer to retry only the structuring */}
+          {savedTranscript && savedMeta && (
+            <button
+              className="btn btn-primary"
+              style={{ marginBottom: 12, width: '100%' }}
+              onClick={() => { setError(null); structureAndSave(savedTranscript, savedMeta) }}
+            >
+              Réessayer la structuration
+              <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 400, opacity: 0.8, marginTop: 2 }}>
+                (sans ré-enregistrer)
+              </span>
+            </button>
+          )}
+
+          <button
+            className="btn btn-secondary"
+            style={{ width: '100%' }}
+            onClick={() => { setStep(STEP.SETUP); setError(null); setSavedTranscript(null); setSavedMeta(null) }}
+          >
+            Recommencer depuis le début
           </button>
         </div>
       </div>

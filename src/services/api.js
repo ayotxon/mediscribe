@@ -3,38 +3,63 @@
  *
  * All requests use relative paths — Vercel rewrites /api/* to Railway.
  * Auth is handled via httpOnly cookies (credentials: 'include').
- * No Authorization header, no VITE_API_URL needed.
  *
- * On TOKEN_EXPIRED (401 + canRefresh), the interceptor calls refreshFn()
- * and retries once automatically.
+ * Fixes applied:
+ * - Singleton refresh promise (non-atomic 401 cascade)
+ * - FormData rebuilt on retry (consumed stream bug)
+ * - AbortController timeout on all requests
+ * - Correct audio filename extension
  */
 
-// Injected by AuthContext so api.js doesn't need to import it (avoids circular deps)
 let _refreshFn = null
 export function setRefreshFn(fn) { _refreshFn = fn }
+
+// Singleton in-flight refresh — prevents multiple concurrent 401s from
+// each triggering their own refresh (rotated token = only first succeeds)
+let _refreshPromise = null
+async function doRefresh() {
+  if (!_refreshFn) return false
+  if (!_refreshPromise) {
+    _refreshPromise = _refreshFn().finally(() => { _refreshPromise = null })
+  }
+  return _refreshPromise
+}
 
 const BASE = import.meta.env.DEV
   ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
   : ''
 
-async function req(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options.headers }
+// Wrap a fetch promise with a hard timeout via AbortController
+function withTimeout(fetchFn, ms) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  return fetchFn(controller.signal).finally(() => clearTimeout(timer))
+}
+
+async function req(path, options = {}, timeoutMs = 30_000) {
+  const res = await withTimeout(
+    signal => fetch(`${BASE}${path}`, { ...options, credentials: 'include', signal,
+      headers: { 'Content-Type': 'application/json', ...options.headers }
+    }),
+    timeoutMs
+  ).catch(err => {
+    if (err.name === 'AbortError') throw new Error('Délai dépassé — vérifiez votre connexion')
+    throw err
   })
 
-  // Auto-refresh on expired access token (cookie-based)
   if (res.status === 401) {
     const body = await res.json().catch(() => ({}))
-    if (body.code === 'TOKEN_EXPIRED' && _refreshFn) {
-      const ok = await _refreshFn()
+    if (body.code === 'TOKEN_EXPIRED') {
+      const ok = await doRefresh()
       if (ok) {
-        // Retry original request once with fresh cookie
-        const retry = await fetch(`${BASE}${path}`, {
-          ...options,
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...options.headers }
+        const retry = await withTimeout(
+          signal => fetch(`${BASE}${path}`, { ...options, credentials: 'include', signal,
+            headers: { 'Content-Type': 'application/json', ...options.headers }
+          }),
+          timeoutMs
+        ).catch(err => {
+          if (err.name === 'AbortError') throw new Error('Délai dépassé — vérifiez votre connexion')
+          throw err
         })
         if (!retry.ok) {
           const err = await retry.json().catch(() => ({}))
@@ -53,26 +78,42 @@ async function req(path, options = {}) {
 
 // ── Transcription ─────────────────────────────────────────────────────────────
 export async function transcribeAudio(audioBlob) {
-  const form = new FormData()
-  form.append('audio', audioBlob, 'recording.webm')
-  form.append('language', 'fr') // MediScribe is always French
+  // Use correct extension so backend MIME detection works on all platforms
+  const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
 
-  const res = await fetch(`${BASE}/api/transcribe`, {
-    method: 'POST',
-    credentials: 'include',
-    body: form
-    // No Content-Type header — browser sets multipart boundary automatically
+  // FormData must be rebuilt for each fetch attempt — body stream is consumed
+  // after the first call and cannot be re-read
+  function buildForm() {
+    const form = new FormData()
+    form.append('audio', audioBlob, `recording.${ext}`)
+    form.append('language', 'fr')
+    return form
+  }
+
+  const res = await withTimeout(
+    signal => fetch(`${BASE}/api/transcribe`, {
+      method: 'POST', credentials: 'include', signal, body: buildForm()
+    }),
+    120_000  // transcription can take time for long recordings
+  ).catch(err => {
+    if (err.name === 'AbortError') throw new Error('Transcription trop longue — réessayez avec un enregistrement plus court')
+    throw err
   })
 
   if (res.status === 401) {
     const body = await res.json().catch(() => ({}))
-    if (body.code === 'TOKEN_EXPIRED' && _refreshFn) {
-      const ok = await _refreshFn()
+    if (body.code === 'TOKEN_EXPIRED') {
+      const ok = await doRefresh()
       if (ok) {
-        const retry = await fetch(`${BASE}/api/transcribe`, {
-          method: 'POST',
-          credentials: 'include',
-          body: form
+        const retry = await withTimeout(
+          signal => fetch(`${BASE}/api/transcribe`, {
+            method: 'POST', credentials: 'include', signal,
+            body: buildForm()  // new FormData — blob can be read multiple times
+          }),
+          120_000
+        ).catch(err => {
+          if (err.name === 'AbortError') throw new Error('Délai dépassé — vérifiez votre connexion')
+          throw err
         })
         if (!retry.ok) {
           const err = await retry.json().catch(() => ({}))
@@ -93,22 +134,13 @@ export async function transcribeAudio(audioBlob) {
 export async function structureExam(transcript, examTypeId, prompt) {
   return req('/api/exam/structure', {
     method: 'POST',
-    body: JSON.stringify({
-      transcript,
-      examTypeId,
-      prompt,
-      model: 'claude-opus-4-7',
-      language: 'fr'
-    })
-  })
+    body: JSON.stringify({ transcript, examTypeId, prompt, model: 'claude-opus-4-7', language: 'fr' })
+  }, 90_000)  // AI structuring can take up to 90s
 }
 
 // ── CRUD rapports ─────────────────────────────────────────────────────────────
 export async function saveReport(report) {
-  return req('/api/exam/reports', {
-    method: 'POST',
-    body: JSON.stringify(report)
-  })
+  return req('/api/exam/reports', { method: 'POST', body: JSON.stringify(report) })
 }
 
 export async function getReports(page = 0) {
@@ -120,10 +152,7 @@ export async function getReport(id) {
 }
 
 export async function updateReport(id, data) {
-  return req(`/api/exam/reports/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data)
-  })
+  return req(`/api/exam/reports/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
 }
 
 export async function deleteReport(id) {

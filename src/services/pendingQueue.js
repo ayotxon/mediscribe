@@ -1,14 +1,15 @@
 /**
- * Pending queue — stores failed/offline recordings in localStorage
- * and retries when connection is restored.
+ * Pending queue — stores offline recordings in localStorage,
+ * retries when connection is restored.
  *
  * Each entry: { id, blobBase64, mimeType, meta, savedAt, attempts }
- * meta: { examType, patientName, patientId, indication, userId }
+ * meta: { examTypeId, patientName, patientId, indication, userId, prompt }
  */
 
 import { transcribeAudio, structureExam, saveReport } from './api.js'
 
 const KEY = 'mediscribe_pending_queue'
+const MAX_ATTEMPTS = 3  // entries that fail 3+ times are skipped (not blocking)
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
@@ -16,8 +17,14 @@ function load() {
   try { return JSON.parse(localStorage.getItem(KEY) || '[]') } catch { return [] }
 }
 
+// Returns true if saved successfully, false if storage is full
 function save(queue) {
-  try { localStorage.setItem(KEY, JSON.stringify(queue)) } catch { /* storage full */ }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(queue))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function getPending() {
@@ -38,15 +45,17 @@ async function blobToBase64(blob) {
   })
 }
 
-/** Convert base64 → Blob */
-function base64ToBlob(b64, mimeType) {
-  const bytes = atob(b64)
-  const buf = new Uint8Array(bytes.length)
-  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i)
-  return new Blob([buf], { type: mimeType })
+/** Convert base64 → Blob — uses fetch() trick to avoid blocking the main thread */
+async function base64ToBlob(b64, mimeType) {
+  const res = await fetch(`data:${mimeType};base64,${b64}`)
+  return res.blob()
 }
 
-/** Enqueue a recording that failed to process */
+/**
+ * Enqueue a recording for later processing.
+ * Throws if localStorage is full so the caller can surface the error instead
+ * of silently losing the audio.
+ */
 export async function enqueuePending(blob, meta) {
   const queue = load()
   const b64 = await blobToBase64(blob)
@@ -58,15 +67,14 @@ export async function enqueuePending(blob, meta) {
     savedAt: new Date().toISOString(),
     attempts: 0
   })
-  save(queue)
-}
-
-function removeFromQueue(id) {
-  save(load().filter(e => e.id !== id))
+  const ok = save(queue)
+  if (!ok) {
+    throw new Error('Stockage local plein — libérez de l\'espace ou supprimez d\'anciens enregistrements')
+  }
 }
 
 export function removePendingItem(id) {
-  removeFromQueue(id)
+  save(load().filter(e => e.id !== id))
 }
 
 export function clearPending() {
@@ -82,8 +90,8 @@ function incrementAttempts(id) {
 // ── Retry logic ───────────────────────────────────────────────────────────────
 
 let _retrying = false
-let _onProgress = null   // (id, status) => void
-let _onComplete = null   // (id, reportId) => void
+let _onProgress = null  // (id, status) => void
+let _onComplete = null  // (id, reportId) => void
 
 export function setQueueCallbacks(onProgress, onComplete) {
   _onProgress = onProgress
@@ -96,10 +104,14 @@ export async function retryPending() {
   if (queue.length === 0) return
 
   _retrying = true
+
   for (const entry of queue) {
+    // Skip permanently failed entries instead of blocking the whole queue
+    if (entry.attempts >= MAX_ATTEMPTS) continue
+
     try {
       _onProgress?.(entry.id, 'transcribing')
-      const blob = base64ToBlob(entry.blobBase64, entry.mimeType)
+      const blob = await base64ToBlob(entry.blobBase64, entry.mimeType)
       const { text } = await transcribeAudio(blob)
 
       _onProgress?.(entry.id, 'structuring')
@@ -116,14 +128,23 @@ export async function retryPending() {
         user_id:      entry.meta.userId
       })
 
-      removeFromQueue(entry.id)
+      removePendingItem(entry.id)
       _onComplete?.(entry.id, report.id)
-    } catch {
+    } catch (err) {
       incrementAttempts(entry.id)
-      // Stop retrying this session — will try again next time
-      break
+      // If it's a network error, stop and wait for next online event
+      // If it's another type of error, continue to the next entry
+      const isNetwork = !navigator.onLine ||
+        (err instanceof TypeError && (
+          err.message.includes('Failed to fetch') ||
+          err.message.includes('Load failed') ||
+          err.message.includes('Délai dépassé')
+        ))
+      if (isNetwork) break
+      // Non-network error (API error, bad data): skip this entry, try next
     }
   }
+
   _retrying = false
 }
 
@@ -139,7 +160,7 @@ export function startOnlineWatcher() {
     if (countPending() > 0) retryPending()
   })
 
-  // Also try once on start if online and queue has items
+  // Try once on startup if already online with pending items
   if (navigator.onLine && countPending() > 0) {
     setTimeout(retryPending, 2000)
   }
