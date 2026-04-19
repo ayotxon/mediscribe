@@ -9,9 +9,10 @@
 
 import { transcribeAudio, structureExam, saveReport } from './api.js'
 import {
-  createSession, getSession, listSessions, updateSession,
+  createSession, getSession, getSessionRaw, listSessionsRaw, updateSession,
   incrementAttempts, deleteSession,
   appendChunk, getSessionBlob, hasChunks,
+  hasEncryptionKey, LockedError,
   migrateLegacyQueue
 } from './audioStorage.js'
 
@@ -107,7 +108,7 @@ export async function processSession(sessionId, cb = {}) {
  */
 export async function recoverOrphanedSessions() {
   await migrateLegacyQueue().catch(() => 0)
-  const all = await listSessions()
+  const all = await listSessionsRaw()   // raw = no decryption, works while locked
   let recovered = 0
   for (const s of all) {
     if (s.state !== 'recording') continue
@@ -124,25 +125,37 @@ export async function recoverOrphanedSessions() {
 // ── Queue view (for HomePage) ────────────────────────────────────────────────
 
 /**
- * Shape exposed to the UI — keeps HomePage agnostic of IDB internals.
- * `savedAt` mirrors the old field name so existing render code still works.
+ * Shape exposed to the UI. Decryption is best-effort so a locked app still
+ * renders a pending-count banner; items whose meta couldn't be decrypted come
+ * back with `locked: true` and no patient data.
  */
-function toListItem(s) {
-  return {
-    id:       s.id,
-    meta:     s.meta,
-    savedAt:  s.createdAt,
-    attempts: s.attempts || 0,
-    state:    s.state
+async function toListItem(raw) {
+  const base = {
+    id:       raw.id,
+    savedAt:  raw.createdAt,
+    attempts: raw.attempts || 0,
+    state:    raw.state,
+    encrypted: !!raw.encrypted,
+    locked:   false,
+    meta:     null
   }
+  if (!raw.encrypted) { base.meta = raw.meta; return base }
+  if (!hasEncryptionKey()) { base.locked = true; return base }
+  try {
+    const s = await getSession(raw.id)   // decrypts
+    base.meta = s?.meta || null
+  } catch {
+    base.locked = true
+  }
+  return base
 }
 
 export async function getPending() {
-  const all = await listSessions()
-  return all
-    .filter(s => s.state !== 'recording')  // hide actively recording sessions
+  const all = await listSessionsRaw()
+  const visible = all
+    .filter(s => s.state !== 'recording')   // hide active captures
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map(toListItem)
+  return Promise.all(visible.map(toListItem))
 }
 
 export async function countPending() {
@@ -155,12 +168,22 @@ export async function removePendingItem(id) {
 }
 
 export async function clearPending() {
-  const all = await listSessions()
+  const all = await listSessionsRaw()
   for (const s of all) {
-    if (s.state === 'recording') continue  // don't wipe an in-progress recording
+    if (s.state === 'recording') continue
     await deleteSession(s.id)
   }
 }
+
+/**
+ * Reads the audio back as a Blob — used by the UI to offer a manual download
+ * for sessions that have exceeded MAX_ATTEMPTS. Requires the encryption key.
+ */
+export async function exportSessionBlob(sessionId) {
+  return getSessionBlob(sessionId)
+}
+
+export { LockedError }
 
 // ── Retry loop ────────────────────────────────────────────────────────────────
 
@@ -186,16 +209,24 @@ function isNetworkError(err) {
 
 export async function retryPending() {
   if (_retrying) return
+  // Don't churn the queue while locked — we'd just fail every decrypt.
+  if (!hasEncryptionKey() && (await countPending()) > 0) {
+    // At least one item is likely encrypted; bail until unlocked.
+    const any = await listSessionsRaw()
+    if (any.some(s => s.encrypted)) return
+  }
   _retrying = true
   try {
     const pending = await getPending()
     for (const item of pending) {
       if (item.attempts >= MAX_ATTEMPTS) continue  // surfaced in UI, not silent-dropped
+      if (item.locked) continue                     // skip until unlock
       try {
         await processSession(item.id, { onProgress: _onProgress, onComplete: _onComplete })
       } catch (err) {
+        if (err instanceof LockedError) break        // no point retrying others
         await incrementAttempts(item.id)
-        if (isNetworkError(err)) break  // wait for next online event
+        if (isNetworkError(err)) break               // wait for next online event
         // Non-network error → skip this one, continue with the rest
       }
     }

@@ -272,9 +272,29 @@ export default function ReadPage() {
 
   async function startRecording() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Constraints tuned for medical dictation:
+      //  - mono: Whisper is mono-only, no point in stereo
+      //  - 16 kHz: Whisper's native sample rate → no server-side resample
+      //  - DSP on: kill hospital ambient noise + AC hum without distorting speech
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount:      1,
+          sampleRate:        16_000,
+          echoCancellation:  true,
+          noiseSuppression:  true,
+          autoGainControl:   true
+        }
+      })
       streamRef.current = stream
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
+      // Prefer Opus explicitly — ~3× smaller than the default webm container,
+      // which makes mobile uploads dramatically more reliable.
+      const mimeCandidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4;codecs=mp4a.40.2',
+        'audio/mp4'
+      ]
+      const mimeType = mimeCandidates.find(m => MediaRecorder.isTypeSupported(m)) || ''
 
       // Persist meta *before* capture starts — if anything crashes between
       // start and first chunk, the session is already discoverable on reboot.
@@ -295,7 +315,11 @@ export default function ReadPage() {
 
       await acquireWakeLock()
 
-      const recorder = new MediaRecorder(stream, { mimeType })
+      // 24 kbps is plenty for intelligible speech — Whisper barely notices the
+      // drop vs 128 kbps default, but the file is ~5× smaller over the wire.
+      const recorderOpts = { audioBitsPerSecond: 24_000 }
+      if (mimeType) recorderOpts.mimeType = mimeType
+      const recorder = new MediaRecorder(stream, recorderOpts)
       mediaRecorderRef.current = recorder
       recorder.ondataavailable = e => {
         if (e.data.size > 0) {

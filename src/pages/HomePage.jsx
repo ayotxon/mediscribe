@@ -3,7 +3,10 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getReports } from '../services/api.js'
 import { getExamType } from '../data/examTypes.js'
-import { getPending, countPending, retryPending, removePendingItem, clearPending } from '../services/pendingQueue.js'
+import {
+  getPending, countPending, retryPending, removePendingItem, clearPending,
+  exportSessionBlob
+} from '../services/pendingQueue.js'
 
 export default function HomePage() {
   const { user, signOut } = useAuth()
@@ -52,6 +55,29 @@ export default function HomePage() {
     await clearPending()
     await refreshPending()
     setShowPendingDetail(false)
+  }
+
+  /**
+   * Download the raw audio for a session that kept failing (≥3 attempts) so
+   * the doctor can re-import it manually or send it elsewhere. No audio is
+   * ever silent-dropped.
+   */
+  async function handleExportAudio(item) {
+    try {
+      const blob = await exportSessionBlob(item.id)
+      if (!blob) throw new Error('Audio introuvable')
+      const ext = (blob.type.includes('mp4') ? 'mp4' : 'webm')
+      const patient = (item.meta?.patientName || 'audio').replace(/[^\w\s.-]/g, '').trim() || 'audio'
+      const date    = new Date(item.savedAt).toISOString().slice(0, 16).replace(/[:T]/g, '-')
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `mediscribe-${patient}-${date}.${ext}`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      alert('Impossible d\'exporter l\'audio : ' + err.message)
+    }
   }
 
   function formatDate(iso) {
@@ -161,21 +187,49 @@ export default function HomePage() {
                   const savedDate = new Date(item.savedAt).toLocaleDateString('fr-FR', {
                     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
                   })
+                  const stuck = item.attempts >= 3
                   return (
                     <div key={item.id} style={{
                       display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '11px 14px', borderBottom: '1px solid rgba(245,158,11,0.15)'
+                      padding: '11px 14px', borderBottom: '1px solid rgba(245,158,11,0.15)',
+                      background: stuck ? 'rgba(239,68,68,0.04)' : undefined
                     }}>
-                      <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>{examType.icon}</span>
+                      <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>
+                        {item.locked ? '🔒' : examType.icon}
+                      </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>
-                          {item.meta?.patientName || 'Patient inconnu'}
+                          {item.locked
+                            ? 'Session protégée'
+                            : (item.meta?.patientName || 'Patient inconnu')}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 1 }}>
-                          {examType.name} · {savedDate}
-                          {item.attempts > 0 && ` · ${item.attempts} tentative${item.attempts > 1 ? 's' : ''}`}
+                          {item.locked ? 'Déverrouillez pour afficher' : examType.name} · {savedDate}
+                          {item.attempts > 0 && (
+                            <span style={{ color: stuck ? 'var(--error)' : undefined }}>
+                              {' · '}{item.attempts} tentative{item.attempts > 1 ? 's' : ''}
+                              {stuck ? ' — bloqué' : ''}
+                            </span>
+                          )}
                         </div>
                       </div>
+                      {stuck && !item.locked && (
+                        <button
+                          onClick={() => handleExportAudio(item)}
+                          title="Télécharger l'audio"
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: 'var(--text-secondary)', padding: 6, borderRadius: 6,
+                            display: 'flex', alignItems: 'center', flexShrink: 0
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7,10 12,15 17,10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                          </svg>
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteItem(item.id)}
                         title="Supprimer"

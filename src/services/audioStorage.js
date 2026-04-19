@@ -1,28 +1,55 @@
 /**
- * IndexedDB storage for recording sessions.
+ * IndexedDB storage for recording sessions — with transparent PHI encryption.
  *
- * Audio chunks are streamed to disk as they arrive from MediaRecorder —
- * so if the tab crashes mid-recording we keep whatever made it through.
+ * Audio chunks stream straight to disk as MediaRecorder emits them, so a tab
+ * crash mid-recording never costs more than the last sub-second of audio.
+ *
+ * Encryption (opt-in per session, gated on an AES-GCM key supplied by the
+ * auth layer through setEncryptionKey):
+ *   - sessions flagged `encrypted: true` persist meta/transcript/structured as
+ *     { iv, ct } AES-GCM records
+ *   - chunks carry an `iv` field when encrypted; its absence means plaintext
+ *   - when the key is missing (cookie-only restore → "locked" state) we still
+ *     expose IDs/state/timestamps so the UI can surface a locked queue, but
+ *     any call that needs plaintext throws LockedError
  *
  * Schema:
- *   sessions { id, state, mimeType, meta, createdAt, attempts,
- *              transcript?, structured? }
- *   chunks   { [sessionId, seq] → Blob }
- *
- * State machine (why we store transcript/structured intermediates):
- *   recording → ready → transcribed → structured → (deleted on save)
- *                               ↑          ↑
- *            retry re-enters at whichever step has no result yet,
- *            so the doctor never re-dictates and we never re-bill
- *            Whisper for audio we already transcribed.
+ *   sessions { id, state, mimeType, meta|encMeta, createdAt, attempts,
+ *              transcript|encTranscript?, structured|encStructured?,
+ *              encrypted }
+ *   chunks   { [sessionId, seq] → { blob, iv? } }
  */
 
-const DB_NAME      = 'mediscribe'
-const DB_VERSION   = 1
-const STORE_SESS   = 'sessions'
-const STORE_CHUNKS = 'chunks'
+import {
+  encryptJSON, decryptJSON,
+  encryptBlob, decryptBlob
+} from './crypto.js'
+
+const DB_NAME     = 'mediscribe'
+const DB_VERSION  = 1
+const STORE_SESS  = 'sessions'
+const STORE_CHUNK = 'chunks'
 
 let _dbPromise = null
+let _key       = null   // AES-GCM CryptoKey, set by auth layer
+
+// ── Key injection ─────────────────────────────────────────────────────────────
+
+export function setEncryptionKey(key) { _key = key }
+export function hasEncryptionKey()    { return _key !== null }
+
+export class LockedError extends Error {
+  constructor(msg = 'Données chiffrées — déverrouillez la session') {
+    super(msg); this.name = 'LockedError'
+  }
+}
+
+function requireKey() {
+  if (!_key) throw new LockedError()
+  return _key
+}
+
+// ── DB bootstrap ──────────────────────────────────────────────────────────────
 
 function openDB() {
   if (_dbPromise) return _dbPromise
@@ -33,8 +60,8 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_SESS)) {
         db.createObjectStore(STORE_SESS, { keyPath: 'id' })
       }
-      if (!db.objectStoreNames.contains(STORE_CHUNKS)) {
-        db.createObjectStore(STORE_CHUNKS, { keyPath: ['sessionId', 'seq'] })
+      if (!db.objectStoreNames.contains(STORE_CHUNK)) {
+        db.createObjectStore(STORE_CHUNK, { keyPath: ['sessionId', 'seq'] })
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -56,11 +83,48 @@ async function tx(stores, mode = 'readonly') {
   return db.transaction(stores, mode)
 }
 
-// ── Sessions ──────────────────────────────────────────────────────────────────
+// ── Session (de)serialization with encryption ────────────────────────────────
+
+async function decryptSessionIfNeeded(record) {
+  if (!record) return null
+  if (!record.encrypted) return record  // legacy / pre-encryption record
+  const key = requireKey()
+  const out = { ...record }
+  if (record.encMeta)       out.meta       = await decryptJSON(key, record.encMeta)
+  if (record.encTranscript) out.transcript = (await decryptJSON(key, record.encTranscript))?.v ?? null
+  if (record.encStructured) out.structured = await decryptJSON(key, record.encStructured)
+  delete out.encMeta; delete out.encTranscript; delete out.encStructured
+  return out
+}
+
+async function encryptSessionFields(record) {
+  if (!_key) {
+    // Persist plaintext when no key is available (should only happen for
+    // boot-time recovery bookkeeping where fields aren't rewritten anyway)
+    return { ...record, encrypted: false }
+  }
+  const key = _key
+  const out = {
+    id:         record.id,
+    state:      record.state,
+    mimeType:   record.mimeType,
+    createdAt:  record.createdAt,
+    attempts:   record.attempts || 0,
+    encrypted:  true,
+    encMeta:    record.meta       ? await encryptJSON(key, record.meta)            : null,
+    // Wrap text in { v: ... } so JSON.parse always yields an object; keeps
+    // the decrypt path uniform whether the original was a string or null.
+    encTranscript: record.transcript ? await encryptJSON(key, { v: record.transcript }) : null,
+    encStructured: record.structured ? await encryptJSON(key, record.structured)        : null
+  }
+  return out
+}
+
+// ── Sessions API ──────────────────────────────────────────────────────────────
 
 export async function createSession(meta, mimeType) {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const session = {
+  const plain = {
     id,
     state: 'recording',
     mimeType,
@@ -70,44 +134,71 @@ export async function createSession(meta, mimeType) {
     transcript: null,
     structured: null
   }
+  const record = await encryptSessionFields(plain)
   const t = await tx(STORE_SESS, 'readwrite')
-  await promisify(t.objectStore(STORE_SESS).put(session))
+  await promisify(t.objectStore(STORE_SESS).put(record))
   return id
 }
 
 export async function getSession(sessionId) {
   const t = await tx(STORE_SESS)
+  const raw = await promisify(t.objectStore(STORE_SESS).get(sessionId))
+  return decryptSessionIfNeeded(raw)
+}
+
+/**
+ * Raw session fetch — returns the stored record WITHOUT decrypting.
+ * Use this for bookkeeping (state flips, attempt counters, listing) that
+ * must work while the app is locked.
+ */
+export async function getSessionRaw(sessionId) {
+  const t = await tx(STORE_SESS)
   return promisify(t.objectStore(STORE_SESS).get(sessionId))
 }
 
-export async function listSessions() {
+export async function listSessionsRaw() {
   const t = await tx(STORE_SESS)
   return promisify(t.objectStore(STORE_SESS).getAll())
 }
 
+/**
+ * Updates a subset of session fields. Re-encrypts only if the caller is
+ * setting plaintext-level fields (transcript/structured/meta).
+ */
 export async function updateSession(sessionId, updates) {
+  const raw = await getSessionRaw(sessionId)
+  if (!raw) return null
+
+  // Cheap path: only state/attempts — don't touch encrypted payloads
+  const bookkeepingOnly =
+    Object.keys(updates).every(k => k === 'state' || k === 'attempts' || k === 'mimeType')
+  if (bookkeepingOnly) {
+    const merged = { ...raw, ...updates }
+    const t = await tx(STORE_SESS, 'readwrite')
+    await promisify(t.objectStore(STORE_SESS).put(merged))
+    return merged
+  }
+
+  // Payload path: decrypt, merge, re-encrypt
+  const plain = await decryptSessionIfNeeded(raw) || {}
+  const merged = { ...plain, ...updates }
+  const rec = await encryptSessionFields(merged)
   const t = await tx(STORE_SESS, 'readwrite')
-  const store = t.objectStore(STORE_SESS)
-  const session = await promisify(store.get(sessionId))
-  if (!session) return null
-  Object.assign(session, updates)
-  await promisify(store.put(session))
-  return session
+  await promisify(t.objectStore(STORE_SESS).put(rec))
+  return merged
 }
 
 export async function incrementAttempts(sessionId) {
-  const session = await getSession(sessionId)
-  if (!session) return
-  await updateSession(sessionId, { attempts: (session.attempts || 0) + 1 })
+  const raw = await getSessionRaw(sessionId)
+  if (!raw) return
+  await updateSession(sessionId, { attempts: (raw.attempts || 0) + 1 })
 }
 
 export async function deleteSession(sessionId) {
-  // Chunks first — orphaned chunks waste space if we die mid-delete,
-  // but an orphaned session with no chunks would mis-report size
-  const t1 = await tx(STORE_CHUNKS, 'readwrite')
+  const t1 = await tx(STORE_CHUNK, 'readwrite')
   const range = IDBKeyRange.bound([sessionId, 0], [sessionId, Number.MAX_SAFE_INTEGER])
   await new Promise((resolve, reject) => {
-    const req = t1.objectStore(STORE_CHUNKS).openCursor(range)
+    const req = t1.objectStore(STORE_CHUNK).openCursor(range)
     req.onsuccess = () => {
       const cur = req.result
       if (cur) { cur.delete(); cur.continue() } else resolve()
@@ -118,35 +209,54 @@ export async function deleteSession(sessionId) {
   await promisify(t2.objectStore(STORE_SESS).delete(sessionId))
 }
 
-// ── Chunks ────────────────────────────────────────────────────────────────────
+// ── Chunks API ────────────────────────────────────────────────────────────────
 
 export async function appendChunk(sessionId, blob, seq) {
-  const t = await tx(STORE_CHUNKS, 'readwrite')
-  await promisify(t.objectStore(STORE_CHUNKS).put({ sessionId, seq, blob }))
+  let record
+  if (_key) {
+    const { iv, ct } = await encryptBlob(_key, blob)
+    record = { sessionId, seq, blob: ct, iv }
+  } else {
+    record = { sessionId, seq, blob }
+  }
+  const t = await tx(STORE_CHUNK, 'readwrite')
+  await promisify(t.objectStore(STORE_CHUNK).put(record))
 }
 
 export async function getSessionBlob(sessionId) {
-  const session = await getSession(sessionId)
-  if (!session) return null
-  const t = await tx(STORE_CHUNKS)
+  const raw = await getSessionRaw(sessionId)
+  if (!raw) return null
+  const t = await tx(STORE_CHUNK)
   const range = IDBKeyRange.bound([sessionId, 0], [sessionId, Number.MAX_SAFE_INTEGER])
-  const parts = await new Promise((resolve, reject) => {
+  const records = await new Promise((resolve, reject) => {
     const out = []
-    const req = t.objectStore(STORE_CHUNKS).openCursor(range)
+    const req = t.objectStore(STORE_CHUNK).openCursor(range)
     req.onsuccess = () => {
       const cur = req.result
-      if (cur) { out.push(cur.value.blob); cur.continue() } else resolve(out)
+      if (cur) { out.push(cur.value); cur.continue() } else resolve(out)
     }
     req.onerror = () => reject(req.error)
   })
-  if (parts.length === 0) return null
-  return new Blob(parts, { type: session.mimeType })
+  if (records.length === 0) return null
+
+  const parts = []
+  for (const r of records) {
+    if (r.iv) {
+      // Encrypted chunk → need the key
+      const key = requireKey()
+      const b = await decryptBlob(key, { iv: r.iv, ct: r.blob }, raw.mimeType)
+      parts.push(b)
+    } else {
+      parts.push(r.blob)
+    }
+  }
+  return new Blob(parts, { type: raw.mimeType })
 }
 
 export async function hasChunks(sessionId) {
-  const t = await tx(STORE_CHUNKS)
+  const t = await tx(STORE_CHUNK)
   const range = IDBKeyRange.bound([sessionId, 0], [sessionId, Number.MAX_SAFE_INTEGER])
-  const req = t.objectStore(STORE_CHUNKS).openCursor(range)
+  const req = t.objectStore(STORE_CHUNK).openCursor(range)
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result !== null)
     req.onerror   = () => reject(req.error)
@@ -160,7 +270,7 @@ export async function getStorageEstimate() {
   try { return await navigator.storage.estimate() } catch { return null }
 }
 
-// ── One-shot migration from the old base64/localStorage queue ─────────────────
+// ── Legacy queue migration (plaintext base64 → IDB) ───────────────────────────
 
 const OLD_KEY = 'mediscribe_pending_queue'
 
@@ -172,15 +282,13 @@ export async function migrateLegacyQueue() {
   let migrated = 0
   for (const entry of legacy) {
     try {
-      const res = await fetch(`data:${entry.mimeType};base64,${entry.blobBase64}`)
+      const res  = await fetch(`data:${entry.mimeType};base64,${entry.blobBase64}`)
       const blob = await res.blob()
-      const id = await createSession(entry.meta, entry.mimeType || 'audio/webm')
+      const id   = await createSession(entry.meta, entry.mimeType || 'audio/webm')
       await appendChunk(id, blob, 0)
       await updateSession(id, { state: 'ready', attempts: entry.attempts || 0 })
       migrated++
-    } catch {
-      // Skip corrupt entries — they'd never have succeeded anyway
-    }
+    } catch { /* skip corrupt entries */ }
   }
   localStorage.removeItem(OLD_KEY)
   return migrated
