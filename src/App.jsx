@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext.jsx'
 import { setRefreshFn } from './services/api.js'
-import { startOnlineWatcher } from './services/pendingQueue.js'
+import { startOnlineWatcher, recoverOrphanedSessions } from './services/pendingQueue.js'
 import LoginPage from './pages/LoginPage.jsx'
 import HomePage from './pages/HomePage.jsx'
 import ReadPage from './pages/ReadPage.jsx'
@@ -24,8 +24,14 @@ export default function App() {
     setRefreshFn(refreshAccessToken)
   }, [refreshAccessToken])
 
-  // Start watching for connection restore to retry pending recordings
-  useEffect(() => { startOnlineWatcher() }, [])
+  // Boot recovery: migrate the legacy localStorage queue and promote any
+  // sessions left in 'recording' state (tab crashed mid-dictation) to 'ready'
+  // so the queue can pick them up. Then start the online watcher.
+  useEffect(() => {
+    recoverOrphanedSessions()
+      .catch(() => {})
+      .finally(() => startOnlineWatcher())
+  }, [])
 
   return (
     <Routes>

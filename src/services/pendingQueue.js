@@ -1,151 +1,207 @@
 /**
- * Pending queue — stores offline recordings in localStorage,
- * retries when connection is restored.
+ * Session-aware pending queue.
  *
- * Each entry: { id, blobBase64, mimeType, meta, savedAt, attempts }
- * meta: { examTypeId, patientName, patientId, indication, userId, prompt }
+ * The pipeline is: recording → ready → transcribed → structured → completed.
+ * Each intermediate result is persisted to IndexedDB, so retries skip whatever
+ * already succeeded — the doctor never re-dictates and we never re-bill Whisper
+ * for audio we already have a transcript for.
  */
 
 import { transcribeAudio, structureExam, saveReport } from './api.js'
+import {
+  createSession, getSession, listSessions, updateSession,
+  incrementAttempts, deleteSession,
+  appendChunk, getSessionBlob, hasChunks,
+  migrateLegacyQueue
+} from './audioStorage.js'
 
-const KEY = 'mediscribe_pending_queue'
-const MAX_ATTEMPTS = 3  // entries that fail 3+ times are skipped (not blocking)
+const MAX_ATTEMPTS = 3   // show-but-don't-retry threshold (never silent drop)
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
+// ── Recording-side helpers ────────────────────────────────────────────────────
 
-function load() {
-  try { return JSON.parse(localStorage.getItem(KEY) || '[]') } catch { return [] }
+// Serialize chunk writes per session so stop() can await them before finalizing
+const _pendingWrites = new Map()  // sessionId → Promise<void>
+
+export async function createRecordingSession(meta, mimeType) {
+  return createSession(meta, mimeType)
 }
 
-// Returns true if saved successfully, false if storage is full
-function save(queue) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(queue))
-    return true
-  } catch {
-    return false
-  }
+export function writeChunk(sessionId, blob, seq) {
+  const prev = _pendingWrites.get(sessionId) || Promise.resolve()
+  const next = prev.then(() => appendChunk(sessionId, blob, seq)).catch(() => {})
+  _pendingWrites.set(sessionId, next)
+  return next
 }
 
-export function getPending() {
-  return load()
+export async function flushChunkWrites(sessionId) {
+  const p = _pendingWrites.get(sessionId)
+  if (p) await p
+  _pendingWrites.delete(sessionId)
 }
 
-export function countPending() {
-  return load().length
+export async function finalizeRecording(sessionId) {
+  await flushChunkWrites(sessionId)
+  await updateSession(sessionId, { state: 'ready' })
 }
 
-/** Convert Blob → base64 string */
-async function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result.split(',')[1])
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
+export async function discardSession(sessionId) {
+  _pendingWrites.delete(sessionId)
+  await deleteSession(sessionId)
 }
 
-/** Convert base64 → Blob — uses fetch() trick to avoid blocking the main thread */
-async function base64ToBlob(b64, mimeType) {
-  const res = await fetch(`data:${mimeType};base64,${b64}`)
-  return res.blob()
-}
+// ── Pipeline — state-aware, resumes at the first incomplete step ─────────────
 
 /**
- * Enqueue a recording for later processing.
- * Throws if localStorage is full so the caller can surface the error instead
- * of silently losing the audio.
+ * Runs a session through the remaining pipeline steps.
+ * Throws on error — caller decides whether to leave the session for retry.
  */
-export async function enqueuePending(blob, meta) {
-  const queue = load()
-  const b64 = await blobToBase64(blob)
-  queue.push({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    blobBase64: b64,
-    mimeType: blob.type || 'audio/webm',
-    meta,
-    savedAt: new Date().toISOString(),
-    attempts: 0
+export async function processSession(sessionId, cb = {}) {
+  const session = await getSession(sessionId)
+  if (!session) throw new Error('Session introuvable')
+  if (session.state === 'recording') {
+    // Orphaned recording: chunks exist but finalize never ran. Treat as ready.
+    await updateSession(sessionId, { state: 'ready' })
+  }
+
+  let { transcript, structured } = session
+
+  if (!transcript) {
+    cb.onProgress?.(sessionId, 'transcribing')
+    const blob = await getSessionBlob(sessionId)
+    if (!blob) throw new Error('Audio introuvable pour cette session')
+    const { text } = await transcribeAudio(blob)
+    transcript = text
+    await updateSession(sessionId, { transcript, state: 'transcribed' })
+  }
+
+  if (!structured) {
+    cb.onProgress?.(sessionId, 'structuring')
+    const res = await structureExam(transcript, session.meta.examTypeId, session.meta.prompt)
+    structured = res.structured
+    await updateSession(sessionId, { structured, state: 'structured' })
+  }
+
+  cb.onProgress?.(sessionId, 'saving')
+  const report = await saveReport({
+    exam_type:    session.meta.examTypeId,
+    patient_name: session.meta.patientName || null,
+    patient_id:   session.meta.patientId   || null,
+    indication:   session.meta.indication  || null,
+    transcript,
+    structured,
+    user_id:      session.meta.userId
   })
-  const ok = save(queue)
-  if (!ok) {
-    throw new Error('Stockage local plein — libérez de l\'espace ou supprimez d\'anciens enregistrements')
+
+  await deleteSession(sessionId)
+  cb.onComplete?.(sessionId, report.id)
+  return report
+}
+
+// ── Boot-time recovery ───────────────────────────────────────────────────────
+
+/**
+ * Handles sessions left hanging from a previous tab/load:
+ *   - 'recording' state with chunks → promote to 'ready' (audio survived)
+ *   - 'recording' state with no chunks → delete (nothing to recover)
+ * Returns the number of sessions recovered.
+ */
+export async function recoverOrphanedSessions() {
+  await migrateLegacyQueue().catch(() => 0)
+  const all = await listSessions()
+  let recovered = 0
+  for (const s of all) {
+    if (s.state !== 'recording') continue
+    if (await hasChunks(s.id)) {
+      await updateSession(s.id, { state: 'ready' })
+      recovered++
+    } else {
+      await deleteSession(s.id)
+    }
+  }
+  return recovered
+}
+
+// ── Queue view (for HomePage) ────────────────────────────────────────────────
+
+/**
+ * Shape exposed to the UI — keeps HomePage agnostic of IDB internals.
+ * `savedAt` mirrors the old field name so existing render code still works.
+ */
+function toListItem(s) {
+  return {
+    id:       s.id,
+    meta:     s.meta,
+    savedAt:  s.createdAt,
+    attempts: s.attempts || 0,
+    state:    s.state
   }
 }
 
-export function removePendingItem(id) {
-  save(load().filter(e => e.id !== id))
+export async function getPending() {
+  const all = await listSessions()
+  return all
+    .filter(s => s.state !== 'recording')  // hide actively recording sessions
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map(toListItem)
 }
 
-export function clearPending() {
-  save([])
+export async function countPending() {
+  const list = await getPending()
+  return list.length
 }
 
-function incrementAttempts(id) {
-  const queue = load()
-  const entry = queue.find(e => e.id === id)
-  if (entry) { entry.attempts++; save(queue) }
+export async function removePendingItem(id) {
+  await deleteSession(id)
 }
 
-// ── Retry logic ───────────────────────────────────────────────────────────────
+export async function clearPending() {
+  const all = await listSessions()
+  for (const s of all) {
+    if (s.state === 'recording') continue  // don't wipe an in-progress recording
+    await deleteSession(s.id)
+  }
+}
+
+// ── Retry loop ────────────────────────────────────────────────────────────────
 
 let _retrying = false
-let _onProgress = null  // (id, status) => void
-let _onComplete = null  // (id, reportId) => void
+let _onProgress = null
+let _onComplete = null
 
 export function setQueueCallbacks(onProgress, onComplete) {
   _onProgress = onProgress
   _onComplete = onComplete
 }
 
+function isNetworkError(err) {
+  if (!navigator.onLine) return true
+  const msg = (err?.message || '').toLowerCase()
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('load failed')    ||
+    msg.includes('délai dépassé')  ||
+    msg.includes('network')
+  )
+}
+
 export async function retryPending() {
   if (_retrying) return
-  const queue = load()
-  if (queue.length === 0) return
-
   _retrying = true
-
-  for (const entry of queue) {
-    // Skip permanently failed entries instead of blocking the whole queue
-    if (entry.attempts >= MAX_ATTEMPTS) continue
-
-    try {
-      _onProgress?.(entry.id, 'transcribing')
-      const blob = await base64ToBlob(entry.blobBase64, entry.mimeType)
-      const { text } = await transcribeAudio(blob)
-
-      _onProgress?.(entry.id, 'structuring')
-      const { structured } = await structureExam(text, entry.meta.examTypeId, entry.meta.prompt)
-
-      _onProgress?.(entry.id, 'saving')
-      const report = await saveReport({
-        exam_type:    entry.meta.examTypeId,
-        patient_name: entry.meta.patientName || null,
-        patient_id:   entry.meta.patientId || null,
-        indication:   entry.meta.indication || null,
-        transcript:   text,
-        structured,
-        user_id:      entry.meta.userId
-      })
-
-      removePendingItem(entry.id)
-      _onComplete?.(entry.id, report.id)
-    } catch (err) {
-      incrementAttempts(entry.id)
-      // If it's a network error, stop and wait for next online event
-      // If it's another type of error, continue to the next entry
-      const isNetwork = !navigator.onLine ||
-        (err instanceof TypeError && (
-          err.message.includes('Failed to fetch') ||
-          err.message.includes('Load failed') ||
-          err.message.includes('Délai dépassé')
-        ))
-      if (isNetwork) break
-      // Non-network error (API error, bad data): skip this entry, try next
+  try {
+    const pending = await getPending()
+    for (const item of pending) {
+      if (item.attempts >= MAX_ATTEMPTS) continue  // surfaced in UI, not silent-dropped
+      try {
+        await processSession(item.id, { onProgress: _onProgress, onComplete: _onComplete })
+      } catch (err) {
+        await incrementAttempts(item.id)
+        if (isNetworkError(err)) break  // wait for next online event
+        // Non-network error → skip this one, continue with the rest
+      }
     }
+  } finally {
+    _retrying = false
   }
-
-  _retrying = false
 }
 
 // ── Online watcher ────────────────────────────────────────────────────────────
@@ -156,12 +212,12 @@ export function startOnlineWatcher() {
   if (_watcherActive) return
   _watcherActive = true
 
-  window.addEventListener('online', () => {
-    if (countPending() > 0) retryPending()
+  window.addEventListener('online', async () => {
+    if ((await countPending()) > 0) retryPending()
   })
 
-  // Try once on startup if already online with pending items
-  if (navigator.onLine && countPending() > 0) {
-    setTimeout(retryPending, 2000)
-  }
+  // Delay startup retry so the app paints first
+  setTimeout(async () => {
+    if (navigator.onLine && (await countPending()) > 0) retryPending()
+  }, 2000)
 }

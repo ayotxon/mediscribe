@@ -15,8 +15,8 @@ export default function HomePage() {
   const [showPendingDetail, setShowPendingDetail] = useState(false)
   const [retrying, setRetrying] = useState(false)
 
-  function refreshPending() {
-    const items = getPending()
+  async function refreshPending() {
+    const items = await getPending()
     setPendingItems(items)
     setPendingCount(items.length)
   }
@@ -27,24 +27,30 @@ export default function HomePage() {
       .catch(() => setReports([]))
       .finally(() => setLoading(false))
     refreshPending()
+
+    // Refresh the pending list when the tab regains focus — the queue may
+    // have processed items in the background while the user was away.
+    function onFocus() { refreshPending() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   async function handleRetry() {
     setRetrying(true)
     await retryPending()
-    refreshPending()
+    await refreshPending()
     getReports().then(data => setReports(data?.reports || [])).catch(() => {})
     setRetrying(false)
   }
 
-  function handleDeleteItem(id) {
-    removePendingItem(id)
-    refreshPending()
+  async function handleDeleteItem(id) {
+    await removePendingItem(id)
+    await refreshPending()
   }
 
-  function handleClearAll() {
-    clearPending()
-    refreshPending()
+  async function handleClearAll() {
+    await clearPending()
+    await refreshPending()
     setShowPendingDetail(false)
   }
 

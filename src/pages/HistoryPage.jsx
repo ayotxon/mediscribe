@@ -9,13 +9,14 @@ export default function HistoryPage() {
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const pendingCount = countPending()
+  const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
     getReports()
       .then(data => setReports(data?.reports || []))
       .catch(() => setReports([]))
       .finally(() => setLoading(false))
+    countPending().then(setPendingCount).catch(() => setPendingCount(0))
   }, [])
 
   const filtered = reports.filter(r => {

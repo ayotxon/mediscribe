@@ -1,17 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EXAM_TYPE_LIST } from '../data/examTypes.js'
-import { transcribeAudio, structureExam, saveReport, getPatients, createPatient } from '../services/api.js'
-import { enqueuePending } from '../services/pendingQueue.js'
+import { getPatients, createPatient } from '../services/api.js'
+import {
+  createRecordingSession, writeChunk, finalizeRecording,
+  processSession, discardSession
+} from '../services/pendingQueue.js'
 import { useAuth } from '../context/AuthContext.jsx'
 
 function isNetworkError(err) {
   if (!navigator.onLine) return true
-  if (err instanceof TypeError) {
-    const msg = err.message.toLowerCase()
-    return msg.includes('failed to fetch') || msg.includes('load failed') || msg.includes('network request failed')
-  }
-  return false
+  const msg = (err?.message || '').toLowerCase()
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('load failed')    ||
+    msg.includes('délai dépassé')  ||
+    msg.includes('network request failed')
+  )
 }
 
 const STEP = {
@@ -38,9 +43,6 @@ export default function ReadPage() {
   const [error, setError] = useState(null)
   const [duration, setDuration] = useState(0)
   const [reportId, setReportId] = useState(null)
-  // Saved after transcription so structuring can be retried without re-recording
-  const [savedTranscript, setSavedTranscript] = useState(null)
-  const [savedMeta, setSavedMeta] = useState(null)
 
   // Patient search
   const [patientQuery, setPatientQuery] = useState('')
@@ -56,7 +58,6 @@ export default function ReadPage() {
   const [creatingPatient, setCreatingPatient] = useState(false)
 
   const mediaRecorderRef = useRef(null)
-  const audioChunksRef   = useRef([])
   const streamRef        = useRef(null)
   const timerRef         = useRef(null)
   const canvasRef        = useRef(null)
@@ -64,6 +65,26 @@ export default function ReadPage() {
   const audioCtxRef      = useRef(null)
   const animFrameRef     = useRef(null)
   const processingRef    = useRef(false)  // prevents double-tap stop
+  const sessionIdRef     = useRef(null)   // IDB session for current recording
+  const chunkSeqRef      = useRef(0)
+  const wakeLockRef      = useRef(null)
+
+  // Prevent screen sleep during active recording (iOS will kill MediaRecorder
+  // if the screen locks). Re-acquire on visibility change since the browser
+  // auto-releases the lock whenever the tab loses focus.
+  async function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) return
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen')
+      wakeLockRef.current.addEventListener?.('release', () => {
+        wakeLockRef.current = null
+      })
+    } catch { /* user/browser declined; silent fallback is fine */ }
+  }
+  function releaseWakeLock() {
+    wakeLockRef.current?.release?.().catch(() => {})
+    wakeLockRef.current = null
+  }
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -81,9 +102,46 @@ export default function ReadPage() {
       clearInterval(timerRef.current)
       cancelAnimationFrame(animFrameRef.current)
       audioCtxRef.current?.close()
-      streamRef.current?.getTracks().forEach(t => t.stop())
+      releaseWakeLock()
+
+      // If a recording is live when we unmount (back button, route change),
+      // finalize it so the queue can pick it up instead of losing the audio.
+      const recorder  = mediaRecorderRef.current
+      const stream    = streamRef.current
+      const sessionId = sessionIdRef.current
+
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.onstop = () => {
+          stream?.getTracks().forEach(t => t.stop())
+          if (sessionId) finalizeRecording(sessionId).catch(() => {})
+        }
+        try { recorder.stop() } catch { /* already stopped */ }
+      } else {
+        stream?.getTracks().forEach(t => t.stop())
+      }
     }
   }, [])
+
+  // Re-arm wake lock when the tab becomes visible again during an active recording
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === 'visible' && step === STEP.RECORDING && !wakeLockRef.current) {
+        acquireWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [step])
+
+  // Block accidental tab close / navigation while audio is in flight.
+  // Browsers ignore the custom string but still prompt the user.
+  useEffect(() => {
+    const active = [STEP.RECORDING, STEP.TRANSCRIBING, STEP.STRUCTURING, STEP.SAVING].includes(step)
+    if (!active) return
+    const handler = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [step])
 
   const searchPatientsApi = useCallback(async (query) => {
     if (!query || query.length < 2) { setPatients([]); return }
@@ -216,12 +274,36 @@ export default function ReadPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
-      audioChunksRef.current = []
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
+
+      // Persist meta *before* capture starts — if anything crashes between
+      // start and first chunk, the session is already discoverable on reboot.
+      const patientName = selectedPatient
+        ? `${selectedPatient.first_name} ${selectedPatient.last_name}`
+        : patientQuery || null
+      const meta = {
+        examTypeId:  selectedType.id,
+        prompt:      selectedType.prompt,
+        patientName,
+        patientId:   selectedPatient?.id || null,
+        indication:  indication || null,
+        userId:      user?.id
+      }
+      const sessionId = await createRecordingSession(meta, mimeType)
+      sessionIdRef.current = sessionId
+      chunkSeqRef.current  = 0
+
+      await acquireWakeLock()
+
       const recorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = recorder
-      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
-      recorder.start(1000)
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) {
+          // Fire-and-forget; writes are serialized per session inside the queue
+          writeChunk(sessionId, e.data, chunkSeqRef.current++)
+        }
+      }
+      recorder.start(1000)  // emit a chunk every second → stream to IDB
       setDuration(0)
       setStep(STEP.RECORDING)
       timerRef.current = setInterval(() => setDuration(d => d + 1), 1000)
@@ -233,106 +315,73 @@ export default function ReadPage() {
   }
 
   async function stopRecording() {
-    // Guard against double-tap — a second call while processing is a no-op
     if (processingRef.current) return
     processingRef.current = true
 
     clearInterval(timerRef.current)
     stopWaveform()
-    streamRef.current?.getTracks().forEach(t => t.stop())
-    const recorder = mediaRecorderRef.current
-    if (!recorder || recorder.state === 'inactive') {
-      processingRef.current = false
-      return
+    releaseWakeLock()
+
+    const recorder  = mediaRecorderRef.current
+    const sessionId = sessionIdRef.current
+
+    // Stop the recorder *before* tearing down the stream — otherwise the final
+    // chunk may never be emitted.
+    if (recorder && recorder.state !== 'inactive') {
+      await new Promise(resolve => { recorder.onstop = resolve; recorder.stop() })
     }
-    await new Promise(resolve => { recorder.onstop = resolve; recorder.stop() })
-    const mimeType = audioChunksRef.current[0]?.type || 'audio/webm'
-    const blob = new Blob(audioChunksRef.current, { type: mimeType })
-    await processAudio(blob)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+
+    if (!sessionId) { processingRef.current = false; return }
+
+    // Flush pending chunk writes + flip session state to 'ready' so the queue
+    // can pick it up if the page unloads during processing.
+    await finalizeRecording(sessionId)
+
+    await processCurrentSession()
     processingRef.current = false
   }
 
-  async function processAudio(blob) {
-    const patientName = selectedPatient
-      ? `${selectedPatient.first_name} ${selectedPatient.last_name}`
-      : patientQuery || null
+  /**
+   * Runs (or resumes) the pipeline for the current session.
+   * processSession skips steps whose result is already persisted, so retrying
+   * after a structure/save failure never re-transcribes audio.
+   */
+  async function processCurrentSession() {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
 
-    const meta = {
-      examTypeId:  selectedType.id,
-      prompt:      selectedType.prompt,
-      patientName,
-      patientId:   selectedPatient?.id || null,
-      indication:  indication || null,
-      userId:      user?.id
-    }
-
-    // If offline, queue immediately without trying
+    // Offline: leave the session in 'ready' → queue handles it on reconnect
     if (!navigator.onLine) {
-      try {
-        await enqueuePending(blob, meta)
-        setStep(STEP.QUEUED)
-      } catch (err) {
-        setError(err.message)
-        setStep(STEP.ERROR)
-      }
+      setStep(STEP.QUEUED)
       return
     }
 
     try {
-      setStep(STEP.TRANSCRIBING)
-      const { text } = await transcribeAudio(blob)
-
-      // Save transcript immediately — if structuring fails we can retry
-      // without asking the doctor to re-record
-      setSavedTranscript(text)
-      setSavedMeta(meta)
-
-      await structureAndSave(text, meta)
+      const report = await processSession(sessionId, {
+        onProgress: (_id, stage) => {
+          if (stage === 'transcribing')      setStep(STEP.TRANSCRIBING)
+          else if (stage === 'structuring')  setStep(STEP.STRUCTURING)
+          else if (stage === 'saving')       setStep(STEP.SAVING)
+        }
+      })
+      setReportId(report.id)
+      sessionIdRef.current = null   // session was deleted by processSession on success
+      setStep(STEP.DONE)
     } catch (err) {
       if (isNetworkError(err)) {
-        try {
-          await enqueuePending(blob, meta)
-          setStep(STEP.QUEUED)
-        } catch (queueErr) {
-          setError(queueErr.message)
-          setStep(STEP.ERROR)
-        }
+        setStep(STEP.QUEUED)
       } else {
-        setError(err.message || 'Erreur de transcription.')
+        setError(err.message || 'Erreur pendant le traitement')
         setStep(STEP.ERROR)
       }
     }
   }
 
-  // Structuring + saving — can be called independently if transcription already succeeded
-  async function structureAndSave(text, meta) {
-    try {
-      setStep(STEP.STRUCTURING)
-      const { structured } = await structureExam(text, meta.examTypeId, meta.prompt)
-
-      setStep(STEP.SAVING)
-      const report = await saveReport({
-        exam_type:    meta.examTypeId,
-        patient_name: meta.patientName,
-        patient_id:   meta.patientId || null,
-        indication:   meta.indication || null,
-        transcript:   text,
-        structured,
-        user_id:      meta.userId
-      })
-      setReportId(report.id)
-      setStep(STEP.DONE)
-    } catch (err) {
-      if (isNetworkError(err)) {
-        // We have the transcript — queue with it so no audio needed on retry
-        // (pendingQueue will re-structure from saved text on next retry)
-        setError('Connexion perdue après la transcription. Reconnectez-vous et réessayez depuis l\'accueil.')
-        setStep(STEP.ERROR)
-      } else {
-        setError(err.message || 'Erreur lors de la structuration ou de la sauvegarde.')
-        setStep(STEP.ERROR)
-      }
-    }
+  async function abandonCurrentSession() {
+    const sessionId = sessionIdRef.current
+    sessionIdRef.current = null
+    if (sessionId) { await discardSession(sessionId).catch(() => {}) }
   }
 
   // ── QUEUED ───────────────────────────────────────────────────────────────────
@@ -355,7 +404,7 @@ export default function ReadPage() {
             Retour à l'accueil
           </button>
           <button className="btn btn-secondary"
-            onClick={() => { setStep(STEP.SETUP) }}>
+            onClick={() => { sessionIdRef.current = null; setStep(STEP.SETUP) }}>
             Nouveau rapport
           </button>
         </div>
@@ -429,14 +478,16 @@ export default function ReadPage() {
           <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 8 }}>Erreur</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: '0.9rem', lineHeight: 1.5 }}>{error}</p>
 
-          {/* If transcription succeeded, offer to retry only the structuring */}
-          {savedTranscript && savedMeta && (
+          {/* Session lives in IndexedDB — retry resumes at the first step
+              that hasn't already succeeded (transcribe / structure / save),
+              so the doctor never re-dictates. */}
+          {sessionIdRef.current && (
             <button
               className="btn btn-primary"
               style={{ marginBottom: 12, width: '100%' }}
-              onClick={() => { setError(null); structureAndSave(savedTranscript, savedMeta) }}
+              onClick={() => { setError(null); processCurrentSession() }}
             >
-              Réessayer la structuration
+              Réessayer
               <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 400, opacity: 0.8, marginTop: 2 }}>
                 (sans ré-enregistrer)
               </span>
@@ -445,10 +496,29 @@ export default function ReadPage() {
 
           <button
             className="btn btn-secondary"
-            style={{ width: '100%' }}
-            onClick={() => { setStep(STEP.SETUP); setError(null); setSavedTranscript(null); setSavedMeta(null) }}
+            style={{ width: '100%', marginBottom: 8 }}
+            onClick={() => {
+              // Leave the session in the queue — it'll show up on the home
+              // screen's pending list and can be retried later.
+              sessionIdRef.current = null
+              setStep(STEP.SETUP)
+              setError(null)
+            }}
           >
-            Recommencer depuis le début
+            Plus tard (garder l'audio)
+          </button>
+
+          <button
+            className="btn btn-ghost"
+            style={{ width: '100%', fontSize: '0.82rem', color: 'var(--error)' }}
+            onClick={async () => {
+              if (!confirm('Supprimer définitivement cet enregistrement audio ?')) return
+              await abandonCurrentSession()
+              setStep(STEP.SETUP)
+              setError(null)
+            }}
+          >
+            Abandonner cet enregistrement
           </button>
         </div>
       </div>
