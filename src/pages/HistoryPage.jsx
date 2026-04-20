@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getReports } from '../services/api.js'
-import { getExamType } from '../data/examTypes.js'
+import { getExamType, EXAM_TYPE_LIST } from '../data/examTypes.js'
 import { countPending } from '../services/pendingQueue.js'
 
 export default function HistoryPage() {
@@ -9,6 +9,10 @@ export default function HistoryPage() {
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [examFilter, setExamFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
@@ -19,14 +23,32 @@ export default function HistoryPage() {
     countPending().then(setPendingCount).catch(() => setPendingCount(0))
   }, [])
 
-  const filtered = reports.filter(r => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    return (
-      r.patient_name?.toLowerCase().includes(q) ||
-      getExamType(r.exam_type).name.toLowerCase().includes(q)
-    )
-  })
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const from = dateFrom ? new Date(dateFrom + 'T00:00:00') : null
+    const to   = dateTo   ? new Date(dateTo   + 'T23:59:59') : null
+
+    return reports.filter(r => {
+      if (q) {
+        const name = r.patient_name?.toLowerCase() || ''
+        const exam = getExamType(r.exam_type).name.toLowerCase()
+        if (!name.includes(q) && !exam.includes(q)) return false
+      }
+      if (examFilter && r.exam_type !== examFilter) return false
+      if (from || to) {
+        const d = new Date(r.created_at)
+        if (from && d < from) return false
+        if (to   && d > to)   return false
+      }
+      return true
+    })
+  }, [reports, search, examFilter, dateFrom, dateTo])
+
+  const activeFilterCount = (examFilter ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0)
+
+  function clearFilters() {
+    setExamFilter(''); setDateFrom(''); setDateTo('')
+  }
 
   function formatDate(iso) {
     if (!iso) return ''
@@ -37,6 +59,11 @@ export default function HistoryPage() {
     <div className="page">
       <header className="app-header no-print">
         <div className="app-header-left">
+          <button className="btn-back" onClick={() => navigate('/')} aria-label="Retour">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}>
+              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/>
+            </svg>
+          </button>
           <div className="app-logo">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 8v4l3 3"/>
@@ -48,7 +75,7 @@ export default function HistoryPage() {
       </header>
 
       <div className="page-content">
-        <div className="form-group" style={{ marginBottom: 16 }}>
+        <div className="form-group" style={{ marginBottom: 12 }}>
           <div style={{ position: 'relative' }}>
             <svg style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16, color: 'var(--text-muted)', pointerEvents: 'none' }}
               viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -56,13 +83,106 @@ export default function HistoryPage() {
             </svg>
             <input
               className="form-input"
-              style={{ paddingLeft: 42 }}
+              style={{ paddingLeft: 42, paddingRight: 120 }}
               placeholder="Rechercher un patient ou un examen…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+            <button
+              type="button"
+              onClick={() => setShowFilters(s => !s)}
+              style={{
+                position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', borderRadius: 'var(--radius-sm)',
+                background: showFilters || activeFilterCount ? 'rgba(212,165,116,0.12)' : 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                color: showFilters || activeFilterCount ? 'var(--accent-gold)' : 'var(--text-secondary)',
+                fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+                fontFamily: 'var(--font-sans)'
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+                <polygon points="22,3 2,3 10,12.46 10,19 14,21 14,12.46"/>
+              </svg>
+              Filtres
+              {activeFilterCount > 0 && (
+                <span style={{
+                  background: 'var(--accent-gold)', color: 'var(--primary-900)',
+                  borderRadius: 999, padding: '0 6px', fontSize: '0.68rem', fontWeight: 700
+                }}>{activeFilterCount}</span>
+              )}
+            </button>
           </div>
         </div>
+
+        {showFilters && (
+          <div className="animate-fade-in" style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-md)', padding: 14, marginBottom: 16
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+              <div>
+                <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: 4 }}>Type d'examen</label>
+                <select
+                  className="form-input"
+                  value={examFilter}
+                  onChange={e => setExamFilter(e.target.value)}
+                  style={{ padding: '9px 12px', fontSize: '0.88rem' }}
+                >
+                  <option value="">Tous</option>
+                  {EXAM_TYPE_LIST.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: 4 }}>Du</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  style={{ padding: '9px 12px', fontSize: '0.88rem' }}
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: 4 }}>Au</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  style={{ padding: '9px 12px', fontSize: '0.88rem' }}
+                />
+              </div>
+            </div>
+            {activeFilterCount > 0 && (
+              <button
+                onClick={clearFilters}
+                style={{
+                  marginTop: 10, background: 'none', border: 'none',
+                  color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)', padding: '4px 0'
+                }}
+              >
+                Réinitialiser les filtres
+              </button>
+            )}
+          </div>
+        )}
+
+        {!loading && (
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: 10, fontSize: '0.78rem', color: 'var(--text-muted)'
+          }}>
+            <span>{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</span>
+            {(search || activeFilterCount > 0) && filtered.length !== reports.length && (
+              <span>sur {reports.length}</span>
+            )}
+          </div>
+        )}
 
         {loading && (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
@@ -73,7 +193,17 @@ export default function HistoryPage() {
         {!loading && filtered.length === 0 && (
           <div className="empty-state">
             <div className="empty-state-icon">📋</div>
-            <p>{search ? 'Aucun résultat pour cette recherche.' : 'Aucun rapport enregistré.'}</p>
+            <p>{search || activeFilterCount > 0
+              ? 'Aucun résultat pour cette recherche.'
+              : 'Aucun rapport enregistré.'}</p>
+            {(search || activeFilterCount > 0) && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => { setSearch(''); clearFilters() }}
+              >
+                Réinitialiser
+              </button>
+            )}
           </div>
         )}
 

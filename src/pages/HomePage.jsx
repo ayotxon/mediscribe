@@ -92,10 +92,11 @@ export default function HomePage() {
     return parts.length ? parts.join(' ') : (p.email?.split('@')[0] || '')
   })()
 
-  const todayCount = reports.filter(r => {
+  const todayReports = reports.filter(r => {
     const d = new Date(r.created_at)
     return d.toDateString() === new Date().toDateString()
-  }).length
+  })
+  const todayCount = todayReports.length
 
   return (
     <div className="page">
@@ -262,6 +263,40 @@ export default function HomePage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Today's reports ── */}
+        {!loading && todayReports.length > 0 && (
+          <>
+            <div className="section-header animate-fade-in">
+              <h2 className="section-title">Aujourd'hui</h2>
+              <span className="section-link" style={{ color: 'var(--text-muted)' }}>
+                {todayReports.length} rapport{todayReports.length > 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="reports-card animate-fade-in" style={{ marginBottom: 20 }}>
+              {todayReports.map(r => {
+                const examType = getExamType(r.exam_type)
+                const time = new Date(r.created_at).toLocaleTimeString('fr-FR', {
+                  hour: '2-digit', minute: '2-digit'
+                })
+                return (
+                  <Link key={r.id} to={`/report/${r.id}`} className="report-item">
+                    <div className="report-item-icon" style={{ background: `${examType.color}22` }}>
+                      {examType.icon}
+                    </div>
+                    <div className="report-item-body">
+                      <div className="report-item-title">{r.patient_name || 'Patient inconnu'}</div>
+                      <div className="report-item-meta">{examType.name} · {time}</div>
+                    </div>
+                    <svg className="report-item-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15 }}>
+                      <polyline points="9,18 15,12 9,6"/>
+                    </svg>
+                  </Link>
+                )
+              })}
+            </div>
+          </>
         )}
 
         {/* ── Recent reports ── */}

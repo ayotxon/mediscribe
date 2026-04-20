@@ -1044,7 +1044,8 @@ select.form-input { cursor: pointer; }
   .report-item { padding: 16px 20px; }
   .report-item-icon { width: 46px; height: 46px; }
 
-  /* Floating pill bottom nav instead of full-width bar */
+  /* Floating pill bottom nav instead of full-width bar. No overflow:hidden —
+     the FAB sits above the pill and must not be clipped. */
   .bottom-nav {
     max-width: 420px;
     bottom: 18px;
@@ -1053,7 +1054,6 @@ select.form-input { cursor: pointer; }
     box-shadow: 0 14px 40px rgba(0,0,0,0.45);
     background: var(--bg-secondary);
     padding-bottom: max(env(safe-area-inset-bottom), 0px);
-    overflow: hidden;
   }
   .nav-fab { margin-top: -26px; }
 
