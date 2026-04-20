@@ -987,6 +987,195 @@ select.form-input { cursor: pointer; }
 .form-textarea:focus { outline: none; border-color: var(--accent-gold); box-shadow: 0 0 0 3px rgba(212,165,116,0.1); }
 .form-textarea::placeholder { color: var(--text-muted); }
 
+/* ═════════════════════════════════════════════════
+   RESPONSIVE — Tablet & Desktop
+   Mobile-first design stays intact below 640px.
+   Tablet (≥640px): wider shell, denser grids.
+   Desktop (≥1024px): multi-column reports, roomier
+   type scale, patient sheet becomes centered modal.
+═════════════════════════════════════════════════ */
+
+/* ── Tablet ── */
+@media (min-width: 640px) {
+  .page { max-width: 760px; }
+
+  .app-header { padding: 14px 24px; }
+  .app-logo { width: 38px; height: 38px; }
+  .app-logo svg { width: 20px; height: 20px; }
+  .app-name { font-size: 1.1rem; }
+
+  .page-content { padding: 20px 24px 120px; }
+
+  .dashboard-greeting { padding: 28px 24px 8px; }
+  .greeting-title { font-size: 1.55rem; }
+  .greeting-sub { font-size: 0.9rem; }
+
+  /* Stats: 4 slim cards side-by-side */
+  .stats-row {
+    grid-template-columns: repeat(4, 1fr);
+    padding: 0 24px; gap: 12px; margin: 20px 0;
+  }
+
+  /* Hero CTA stays readable instead of stretching across a wide card */
+  .hero-cta { max-width: 620px; margin: 0 auto 24px; padding: 22px 28px; }
+  .hero-cta-title { font-size: 1.3rem; }
+
+  .section-header { padding: 0; margin-bottom: 12px; }
+  .section-title { font-size: 0.82rem; }
+
+  /* Exam grid: 4 cols on tablet */
+  .exam-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .exam-card { padding: 18px 10px; }
+  .exam-card-icon { font-size: 1.7rem; }
+  .exam-card-name { font-size: 0.78rem; }
+
+  /* Record area centered with a comfortable cap */
+  .record-area { max-width: 520px; margin: 0 auto; padding: var(--space-xl) 0; }
+  .record-timer { font-size: 3rem; }
+
+  /* Report list items slightly taller for more comfortable click targets */
+  .report-item { padding: 16px 20px; }
+  .report-item-icon { width: 46px; height: 46px; }
+
+  /* Floating pill bottom nav instead of full-width bar */
+  .bottom-nav {
+    max-width: 420px;
+    bottom: 18px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+    background: var(--bg-secondary);
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+    overflow: hidden;
+  }
+  .nav-fab { margin-top: -26px; }
+
+  /* Patient bottom sheet: breathing room on a wider screen */
+  .patient-sheet { max-width: 560px; }
+  .sheet-list { max-height: 60vh; }
+}
+
+/* ── Desktop ── */
+@media (min-width: 1024px) {
+  .page { max-width: 1120px; }
+
+  .app-header { padding: 14px 40px; }
+  .header-doctor { font-size: 0.9rem; }
+
+  .page-content { padding: 28px 40px 140px; }
+
+  .dashboard-greeting { padding: 36px 40px 12px; }
+  .greeting-title { font-size: 1.9rem; }
+  .greeting-sub { font-size: 0.95rem; }
+
+  .stats-row { padding: 0 40px; gap: 16px; margin: 24px 0; }
+  .stat-card { padding: 18px 20px; }
+  .stat-value { font-size: 1.9rem; }
+  .stat-label { font-size: 0.78rem; }
+
+  .hero-cta { max-width: 720px; padding: 28px 36px; }
+  .hero-cta-label { font-size: 0.8rem; }
+  .hero-cta-title { font-size: 1.45rem; }
+  .hero-cta-icon { width: 60px; height: 60px; }
+  .hero-cta-icon svg { width: 30px; height: 30px; }
+
+  /* Exam grid: 6 cols on wide screens */
+  .exam-grid {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .exam-card { padding: 22px 10px; }
+  .exam-card-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.68rem;
+    margin-top: 2px;
+  }
+
+  /* Recent reports: 2-column grid of standalone cards */
+  .reports-card {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+  }
+  .report-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 16px 18px;
+  }
+  .report-item,
+  .report-item:first-child,
+  .report-item:last-child,
+  .report-item:only-child {
+    border-radius: var(--radius-lg);
+    border-bottom: 1px solid var(--border-color);
+  }
+  .report-item:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+  .history-page .reports-card { grid-template-columns: repeat(2, 1fr); }
+
+  /* ReadPage is the only page using .page-header — scope form widths here so
+     inputs don't stretch the full 1120px on desktop */
+  .page-header + .page-content > .animate-fade-in {
+    max-width: 760px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Record area stays centered */
+  .record-area { max-width: 560px; }
+  .record-btn { width: 96px; height: 96px; }
+  .record-btn svg { width: 38px; height: 38px; }
+
+  /* Pending banner centered to match hero CTA width */
+  .pending-banner { max-width: 720px; margin-left: auto; margin-right: auto; }
+
+  /* Patient sheet → centered modal on desktop */
+  .sheet-overlay { display: flex; align-items: center; justify-content: center; }
+  .patient-sheet {
+    position: relative; left: auto; bottom: auto;
+    transform: none;
+    max-width: 560px;
+    max-height: 80vh;
+    border-radius: var(--radius-xl);
+    animation: fadeIn 0.2s ease;
+    box-shadow: var(--shadow-lg);
+  }
+  .sheet-handle { display: none; }
+  .sheet-title { padding: 18px 20px 8px; font-size: 1.1rem; }
+  .sheet-search-box { padding: 0 20px 14px; }
+
+  /* Floating pill nav — slightly narrower, higher up */
+  .bottom-nav {
+    max-width: 380px;
+    bottom: 24px;
+  }
+  .nav-item { font-size: 0.7rem; padding: 12px 0; }
+  .nav-item svg { width: 22px; height: 22px; }
+  .nav-fab { width: 56px; height: 56px; margin-top: -28px; }
+  .nav-fab svg { width: 24px; height: 24px; }
+}
+
+/* ── Large desktop ── */
+@media (min-width: 1440px) {
+  .page { max-width: 1280px; }
+  .reports-card { grid-template-columns: repeat(3, 1fr); }
+  .history-page .reports-card { grid-template-columns: repeat(3, 1fr); }
+}
+
 /* ─────────────────────────────────────────────────
    PRINT — A4
 ───────────────────────────────────────────────── */
