@@ -906,12 +906,14 @@ select.form-input { cursor: pointer; }
 /* ─────────────────────────────────────────────────
    DASHBOARD greeting + improved layout
 ───────────────────────────────────────────────── */
-.dashboard-greeting { padding: 20px 16px 4px; }
+/* Greeting and stats align with the .page-content horizontal padding — no
+   extra inner inset, so they share the same left edge as the header, section
+   titles, and report cards. */
+.dashboard-greeting { padding: 20px 0 4px; }
 .greeting-title { font-size: 1.25rem; font-weight: 800; }
 .greeting-sub { font-size: 0.82rem; color: var(--text-muted); margin-top: 3px; }
 
-/* Stats row: override to use page padding */
-.stats-row { padding: 0 16px; gap: 10px; margin: 16px 0; }
+.stats-row { padding: 0; gap: 10px; margin: 16px 0; }
 .stat-card { padding: 14px 16px; flex-direction: column; align-items: flex-start; gap: 4px; }
 .stat-value { font-size: 1.6rem; }
 
@@ -1006,14 +1008,16 @@ select.form-input { cursor: pointer; }
 
   .page-content { padding: 20px 24px 120px; }
 
-  .dashboard-greeting { padding: 28px 24px 8px; }
+  .dashboard-greeting { padding: 28px 0 8px; }
   .greeting-title { font-size: 1.55rem; }
   .greeting-sub { font-size: 0.9rem; }
 
-  /* Stats: 4 slim cards side-by-side */
+  /* Stats cards stay at 2 per row — there are only two of them. Cap max-width
+     so they don't stretch into oversized tiles on wide screens. */
   .stats-row {
-    grid-template-columns: repeat(4, 1fr);
-    padding: 0 24px; gap: 12px; margin: 20px 0;
+    grid-template-columns: 1fr 1fr;
+    padding: 0; gap: 12px; margin: 20px 0;
+    max-width: 520px;
   }
 
   /* Hero CTA stays readable instead of stretching across a wide card */
@@ -1067,11 +1071,11 @@ select.form-input { cursor: pointer; }
 
   .page-content { padding: 28px 40px 140px; }
 
-  .dashboard-greeting { padding: 36px 40px 12px; }
+  .dashboard-greeting { padding: 36px 0 12px; }
   .greeting-title { font-size: 1.9rem; }
   .greeting-sub { font-size: 0.95rem; }
 
-  .stats-row { padding: 0 40px; gap: 16px; margin: 24px 0; }
+  .stats-row { padding: 0; gap: 16px; margin: 24px 0; max-width: 520px; }
   .stat-card { padding: 18px 20px; }
   .stat-value { font-size: 1.9rem; }
   .stat-label { font-size: 0.78rem; }
