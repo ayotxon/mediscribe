@@ -28,23 +28,56 @@ export function AuthProvider({ children }) {
 
   async function checkSession() {
     try {
-      const res = await fetch('/api/auth/cookie/session', { credentials: 'include' })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.authenticated) {
-          setUser(data.user)
-          // Cookie said yes, but we lost the in-memory key on reload.
-          // Flip to "locked" if there is any canary (i.e. PHI likely exists
-          // on this device). If no canary, this is a first visit — user will
-          // re-enter password via the normal login flow when they try to act.
-          const hasCanary = !!localStorage.getItem('mediscribe_canary_v1')
-          setLocked(hasCanary)
-          return
-        }
+      let data = await fetchSession()
+      // Access cookie may have expired since the last visit — try a refresh
+      // (which falls back to the httpOnly refresh cookie when the in-memory
+      // ref is gone) and re-check before giving up. Without this, every
+      // reload after the access cookie's TTL bounces the user to /login.
+      if (!data?.authenticated && await tryRefresh()) {
+        data = await fetchSession()
+      }
+      if (data?.authenticated) {
+        setUser(data.user)
+        // Cookie said yes, but we lost the in-memory key on reload.
+        // Flip to "locked" if there is any canary (i.e. PHI likely exists
+        // on this device). If no canary, this is a first visit — user will
+        // re-enter password via the normal login flow when they try to act.
+        const hasCanary = !!localStorage.getItem('mediscribe_canary_v1')
+        setLocked(hasCanary)
+        return
       }
     } catch { /* network error → unauthenticated */ }
     finally { setLoading(false) }
     setUser(null)
+  }
+
+  async function fetchSession() {
+    const res = await fetch('/api/auth/cookie/session', { credentials: 'include' })
+    if (!res.ok) return null
+    return res.json().catch(() => null)
+  }
+
+  // Cookie-aware refresh — works even after a reload (refreshTokenRef is null).
+  // Backend is expected to accept the httpOnly refresh cookie when the body
+  // field is absent. Returns true on success, no state side effects.
+  async function tryRefresh() {
+    try {
+      const body = refreshTokenRef.current
+        ? JSON.stringify({ refreshToken: refreshTokenRef.current })
+        : '{}'
+      const res = await fetch('/api/auth/cookie/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body
+      })
+      if (!res.ok) return false
+      const data = await res.json().catch(() => ({}))
+      if (data?.refreshToken) refreshTokenRef.current = data.refreshToken
+      return true
+    } catch {
+      return false
+    }
   }
 
   // ── Sign in (establishes both auth session AND crypto key) ──────────────────
@@ -90,24 +123,15 @@ export function AuthProvider({ children }) {
     setLocked(false)
   }
 
+  // Used by api.js when an authenticated request hits 401 TOKEN_EXPIRED.
+  // Clears auth state on hard failure so ProtectedRoute bounces to /login.
   async function refreshAccessToken() {
-    if (!refreshTokenRef.current) return false
-    try {
-      const res = await fetch('/api/auth/cookie/refresh', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: refreshTokenRef.current })
-      })
-      if (!res.ok) {
-        refreshTokenRef.current = null
-        setUser(null)
-        return false
-      }
-      const data = await res.json()
-      refreshTokenRef.current = data.refreshToken
-      return true
-    } catch { return false }
+    const ok = await tryRefresh()
+    if (!ok) {
+      refreshTokenRef.current = null
+      setUser(null)
+    }
+    return ok
   }
 
   async function signOut() {
