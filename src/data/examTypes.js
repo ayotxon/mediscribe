@@ -651,6 +651,222 @@ Retourne UNIQUEMENT ce JSON:
   },
 
   // ─────────────────────────────────────────────────────────────────────────────
+  echo_doppler_arteriel_mi: {
+    id: 'echo_doppler_arteriel_mi',
+    name: 'Échographie Doppler artériel des membres inférieurs',
+    shortName: 'Doppler MI',
+    icon: '🦵',
+    color: '#3b82f6',
+    description: 'Aorte, iliaques, fémorales, jambières, IPS',
+    showEchogenicite: false,
+
+    layout: [
+      {
+        type: 'section_text',
+        dataKey: 'etage_abdominal',
+        label: "À L'ÉTAGE ABDOMINAL"
+      },
+      {
+        type: 'section_text',
+        dataKey: 'membres_inferieurs',
+        label: 'AUX MEMBRES INFÉRIEURS'
+      },
+      {
+        type: 'section_text',
+        dataKey: 'etage_jambier',
+        label: "À L'ÉTAGE JAMBIER"
+      },
+      {
+        type: 'section_text',
+        dataKey: 'pressions_indices',
+        label: 'MESURE DES PRESSIONS ARTÉRIELLES ET CALCUL DES INDICES'
+      },
+      {
+        type: 'section_conclusion',
+        dataKey: 'conclusion',
+        label: 'CONCLUSION'
+      }
+    ],
+
+    prompt: `Tu es un médecin spécialiste en échographie Doppler vasculaire. Tu structures une dictée d'échographie Doppler artériel des membres inférieurs.
+
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
+
+CONTENU DE CHAQUE SECTION (texte rédigé en prose, plusieurs phrases, séparer paragraphes par \\n\\n):
+- "etage_abdominal" : aorte (parois, ectasie, athérome), axes iliaques (athérome, sténose, signaux Doppler droite/gauche).
+- "membres_inferieurs" : artères fémorales commune, profonde, superficielle (athérome, plaques, sténoses %, vitesses PSV en cm/s, médiacalcose) côté droit puis gauche.
+- "etage_jambier" : axes jambiers (visualisation, signaux Doppler, amortissement).
+- "pressions_indices" : IPS cheville/orteil, faisabilité, raisons techniques éventuelles.
+- "conclusion" : tableau de bullets — type d'artériopathie, sténoses significatives, retentissement, examens complémentaires recommandés.
+
+Retourne UNIQUEMENT ce JSON:
+{
+  "patient": { "nom": null, "age": null, "sexe": null, "poids": null, "taille": null },
+  "indication": null,
+  "etage_abdominal": null,
+  "membres_inferieurs": null,
+  "etage_jambier": null,
+  "pressions_indices": null,
+  "conclusion": []
+}`
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  echo_doppler_tsa: {
+    id: 'echo_doppler_tsa',
+    name: 'Échographie Doppler des TSA',
+    shortName: 'Doppler TSA',
+    icon: '🧠',
+    color: '#8b5cf6',
+    description: 'Troncs supra-aortiques : carotides, vertébrales, sous-clavières',
+    showEchogenicite: false,
+
+    layout: [
+      {
+        type: 'section_dict',
+        dataKey: 'carotides_droite',
+        label: 'AXES CAROTIDIENS — DROITE'
+      },
+      {
+        type: 'section_dict',
+        dataKey: 'carotides_gauche',
+        label: 'AXES CAROTIDIENS — GAUCHE'
+      },
+      {
+        type: 'section_dict',
+        dataKey: 'arteres_vertebrales',
+        label: 'ARTÈRES VERTÉBRALES'
+      },
+      {
+        type: 'section_dict',
+        dataKey: 'arteres_sousclavieres',
+        label: 'ARTÈRES SOUS-CLAVIÈRES'
+      },
+      {
+        type: 'section_conclusion',
+        dataKey: 'conclusion',
+        label: 'CONCLUSION'
+      }
+    ],
+
+    prompt: `Tu es un médecin spécialiste en échographie Doppler vasculaire. Tu structures une dictée d'échographie Doppler des troncs supra-aortiques (TSA).
+
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
+
+STRUCTURE :
+- "carotides_droite" / "carotides_gauche" : chaque côté contient trois descriptions (carotide_commune, carotide_interne, carotide_externe). Chaque valeur est une chaîne décrivant plaque, flux, hémodynamique, PSV cm/s, IR, ratio.
+- "arteres_vertebrales" : objet { droite, gauche }, chaque valeur décrit perméabilité (V1, V2, V3), flux, sens.
+- "arteres_sousclavieres" : objet { droite, gauche }, chaque valeur décrit perméabilité, flux, signal triphasique/biphasique/monophasique.
+- "conclusion" : bullets — résumé hémodynamique des axes carotidiens et vertébro-basilaires.
+
+Retourne UNIQUEMENT ce JSON:
+{
+  "patient": { "nom": null, "age": null, "sexe": null },
+  "indication": null,
+  "carotides_droite": {
+    "carotide_commune": null,
+    "carotide_interne": null,
+    "carotide_externe": null
+  },
+  "carotides_gauche": {
+    "carotide_commune": null,
+    "carotide_interne": null,
+    "carotide_externe": null
+  },
+  "arteres_vertebrales": {
+    "droite": null,
+    "gauche": null
+  },
+  "arteres_sousclavieres": {
+    "droite": null,
+    "gauche": null
+  },
+  "conclusion": []
+}`
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  echo_doppler_ms: {
+    id: 'echo_doppler_ms',
+    name: 'Échographie Doppler des vaisseaux du membre supérieur',
+    shortName: 'Doppler MS',
+    icon: '💪',
+    color: '#14b8a6',
+    description: 'Membre supérieur : veineux profond, superficiel, artériel',
+    showEchogenicite: false,
+
+    layout: [
+      {
+        type: 'section_text',
+        dataKey: 'technique',
+        label: 'TECHNIQUE'
+      },
+      {
+        type: 'section_list',
+        dataKey: 'veineux_profond',
+        label: 'PLAN VEINEUX PROFOND'
+      },
+      {
+        type: 'section_list',
+        dataKey: 'veineux_superficiel',
+        label: 'PLAN VEINEUX SUPERFICIEL'
+      },
+      {
+        type: 'section_list',
+        dataKey: 'arteriel',
+        label: 'PLAN ARTÉRIEL'
+      },
+      {
+        type: 'section_list',
+        dataKey: 'observations',
+        label: 'OBSERVATIONS'
+      },
+      {
+        type: 'section_conclusion',
+        dataKey: 'conclusion',
+        label: 'CONCLUSION'
+      }
+    ],
+
+    prompt: `Tu es un médecin spécialiste en échographie Doppler vasculaire. Tu structures une dictée d'échographie Doppler des vaisseaux du membre supérieur (gauche ou droit, ou les deux).
+
+RÈGLES ABSOLUES — ANTI-HALLUCINATION:
+1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
+2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
+3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
+4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
+
+STRUCTURE :
+- "technique" : chaîne — mode (triplex), transducteur, fréquence (ex : 15 MHz).
+- "veineux_profond" : tableau de bullets — jugulaire interne, sous-clavière, axillaire, brachiale, radiale, ulnaire (compressibilité, thrombus avec mensurations mm).
+- "veineux_superficiel" : tableau de bullets — céphalique, basilique (compressibilité, anomalie endoluminale).
+- "arteriel" : tableau de bullets — flux, plaques d'athérome.
+- "observations" : tableau de bullets — éléments associés (lymphœdème, autres).
+- "conclusion" : bullets — diagnostic principal (thrombose veineuse profonde/superficielle, étendue, lymphœdème).
+
+Retourne UNIQUEMENT ce JSON:
+{
+  "patient": { "nom": null, "age": null, "sexe": null },
+  "indication": null,
+  "cote": null,
+  "technique": null,
+  "veineux_profond": [],
+  "veineux_superficiel": [],
+  "arteriel": [],
+  "observations": [],
+  "conclusion": []
+}`
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
   autre: {
     id: 'autre',
     name: 'Autre Examen',

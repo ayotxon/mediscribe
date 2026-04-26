@@ -54,6 +54,10 @@ const LABELS = {
   date_prelevement:'Date prélèvement',
   type_incidence:'Type / Incidence', qualite_technique:'Qualité technique',
   type_examen:"Type d'examen", technique:'Technique',
+  carotide_commune:'Artère Carotide Commune',
+  carotide_interne:'Artère Carotide Interne',
+  carotide_externe:'Artère Carotide Externe',
+  droite:'Droite', gauche:'Gauche',
 }
 function hl(key) {
   return LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -429,12 +433,13 @@ function SectionConclusion({ num, section, value, editMode, onChange }) {
 // ── section_text ──────────────────────────────────────────────────────────────
 function SectionText({ num, section, value, editMode, onChange }) {
   if (isBlank(value) && !editMode) return null
+  const lineCount = typeof value === 'string' ? Math.max(2, value.split('\n').length) : 2
   return (
     <div className="med-section">
       <SecHeader num={num} label={section.label} />
-      <div style={{ marginLeft: 20 }}>
+      <div style={{ marginLeft: 20, whiteSpace: 'pre-wrap' }}>
         {editMode
-          ? <textarea className="med-input med-input-light" style={{ width: '100%', minHeight: '40px', resize: 'none', fontWeight: 400 }} rows={2} value={value ?? ''} onChange={e => onChange(e.target.value)} />
+          ? <textarea className="med-input med-input-light" style={{ width: '100%', minHeight: '40px', resize: 'none', fontWeight: 400 }} rows={lineCount} value={value ?? ''} onChange={e => onChange(e.target.value)} />
           : value}
       </div>
     </div>
