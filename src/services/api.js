@@ -49,24 +49,26 @@ async function req(path, options = {}, timeoutMs = 30_000) {
 
   if (res.status === 401) {
     const body = await res.json().catch(() => ({}))
-    if (body.code === 'TOKEN_EXPIRED') {
-      const ok = await doRefresh()
-      if (ok) {
-        const retry = await withTimeout(
-          signal => fetch(`${BASE}${path}`, { ...options, credentials: 'include', signal,
-            headers: { 'Content-Type': 'application/json', ...options.headers }
-          }),
-          timeoutMs
-        ).catch(err => {
-          if (err.name === 'AbortError') throw new Error('Délai dépassé — vérifiez votre connexion')
-          throw err
-        })
-        if (!retry.ok) {
-          const err = await retry.json().catch(() => ({}))
-          throw new Error(err.error || `Erreur ${retry.status}`)
-        }
-        return retry.json()
+    // Try a refresh on any 401 — the access cookie may be expired (TOKEN_EXPIRED)
+    // OR missing entirely ("Token manquant" after a long idle). The httpOnly
+    // refresh cookie often outlives the access cookie, so refreshing recovers
+    // the session silently instead of bouncing the user to /login.
+    const ok = await doRefresh()
+    if (ok) {
+      const retry = await withTimeout(
+        signal => fetch(`${BASE}${path}`, { ...options, credentials: 'include', signal,
+          headers: { 'Content-Type': 'application/json', ...options.headers }
+        }),
+        timeoutMs
+      ).catch(err => {
+        if (err.name === 'AbortError') throw new Error('Délai dépassé — vérifiez votre connexion')
+        throw err
+      })
+      if (!retry.ok) {
+        const err = await retry.json().catch(() => ({}))
+        throw new Error(err.error || `Erreur ${retry.status}`)
       }
+      return retry.json()
     }
     throw new Error(body.error || 'Non autorisé')
   }
@@ -102,25 +104,26 @@ export async function transcribeAudio(audioBlob) {
 
   if (res.status === 401) {
     const body = await res.json().catch(() => ({}))
-    if (body.code === 'TOKEN_EXPIRED') {
-      const ok = await doRefresh()
-      if (ok) {
-        const retry = await withTimeout(
-          signal => fetch(`${BASE}/api/transcribe`, {
-            method: 'POST', credentials: 'include', signal,
-            body: buildForm()  // new FormData — blob can be read multiple times
-          }),
-          120_000
-        ).catch(err => {
-          if (err.name === 'AbortError') throw new Error('Délai dépassé — vérifiez votre connexion')
-          throw err
-        })
-        if (!retry.ok) {
-          const err = await retry.json().catch(() => ({}))
-          throw new Error(err.error || 'Erreur de transcription')
-        }
-        return retry.json()
+    // Same as req(): refresh on any 401, not just TOKEN_EXPIRED — the access
+    // cookie might be missing rather than expired, and the refresh cookie can
+    // still recover the session.
+    const ok = await doRefresh()
+    if (ok) {
+      const retry = await withTimeout(
+        signal => fetch(`${BASE}/api/transcribe`, {
+          method: 'POST', credentials: 'include', signal,
+          body: buildForm()  // new FormData — blob can be read multiple times
+        }),
+        120_000
+      ).catch(err => {
+        if (err.name === 'AbortError') throw new Error('Délai dépassé — vérifiez votre connexion')
+        throw err
+      })
+      if (!retry.ok) {
+        const err = await retry.json().catch(() => ({}))
+        throw new Error(err.error || 'Erreur de transcription')
       }
+      return retry.json()
     }
     throw new Error(body.error || 'Non autorisé')
   }

@@ -77,11 +77,51 @@ function formatDateShort(iso) {
 }
 
 // ── Inline editable field ─────────────────────────────────────────────────────
-function EF({ val, onChange, editMode, multi = false, w = '80px', light = false }) {
+function EF({ val, onChange, editMode, multi = false, w = '110px', light = false }) {
   const cls = `med-input${light ? ' med-input-light' : ''}`
   if (!editMode) return <strong style={light ? { fontWeight: 400 } : {}}>{val ?? '—'}</strong>
-  if (multi) return <textarea className={cls} style={{ width: '100%', minHeight: '30px', resize: 'none', display: 'block' }} rows={2} value={val ?? ''} onChange={e => onChange(e.target.value)} />
+  if (multi) return <textarea className={cls} style={{ width: '100%', minHeight: '40px', resize: 'vertical', display: 'block' }} rows={2} value={val ?? ''} onChange={e => onChange(e.target.value)} />
   return <input className={cls} style={{ width: w }} value={val ?? ''} onChange={e => onChange(e.target.value)} />
+}
+
+// ── Reorder controls (↑ / ↓) for editable lists ───────────────────────────────
+// Order matters in medical reports — testers asked for the ability to bump an
+// item up/down without deleting and re-adding it.
+function ReorderControls({ index, length, onMove }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+      <button
+        type="button"
+        className="med-btn-move"
+        title="Monter"
+        disabled={index === 0}
+        onClick={() => onMove(index, index - 1)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 12, height: 12 }}>
+          <polyline points="18,15 12,9 6,15"/>
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="med-btn-move"
+        title="Descendre"
+        disabled={index === length - 1}
+        onClick={() => onMove(index, index + 1)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 12, height: 12 }}>
+          <polyline points="6,9 12,15 18,9"/>
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+function moveItem(arr, from, to) {
+  if (to < 0 || to >= arr.length) return arr
+  const next = [...arr]
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  return next
 }
 
 // ── Doctor letterhead ─────────────────────────────────────────────────────────
@@ -172,8 +212,8 @@ function PatientHeader({ report, data, editMode, onChange, doctorName, showEchog
         <div style={{ marginBottom: '4px' }}>
           Renseignements Cliniques :{' '}
           {editMode
-            ? <textarea className="med-input" style={{ fontWeight: 700, width: '70%', marginLeft: 4, resize: 'none', verticalAlign: 'middle', minHeight: '22px' }}
-                rows={1} value={data?.indication ?? ''} onChange={e => onChange('indication', e.target.value)} />
+            ? <textarea className="med-input" style={{ fontWeight: 700, width: '70%', marginLeft: 4, resize: 'vertical', verticalAlign: 'middle', minHeight: '34px' }}
+                rows={2} value={data?.indication ?? ''} onChange={e => onChange('indication', e.target.value)} />
             : <strong>{data?.indication}</strong>}
         </div>
       )}
@@ -219,7 +259,7 @@ function CellItem({ item, data, editMode, onSet }) {
             <span key={i}>
               {ci.prefix}
               {editMode
-                ? <input className="med-input" style={{ width: '55px' }} value={v ?? ''}
+                ? <input className="med-input" style={{ width: '72px' }} value={v ?? ''}
                     onChange={e => onSet(ci.key, e.target.value)} />
                 : <strong>{v}</strong>}
               {ci.suffix || ''}
@@ -235,7 +275,7 @@ function CellItem({ item, data, editMode, onSet }) {
     <span>
       {item.label ? `${item.label} :  ` : ''}
       {editMode
-        ? <input className="med-input" style={{ width: '70px' }} value={v ?? ''}
+        ? <input className="med-input" style={{ width: '92px' }} value={v ?? ''}
             onChange={e => onSet(item.key, e.target.value)} />
         : isBlank(v) ? '' : <strong>{v}</strong>}
     </span>
@@ -335,12 +375,13 @@ function SectionList({ num, section, items, editMode, onChange }) {
         {arr.map((item, i) => (
           <div key={i} className="med-bullet">
             {editMode ? (
-              <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-                <span>-&nbsp;</span>
-                <textarea className="med-input med-input-light" style={{ flex: 1, resize: 'none', minHeight: '22px', fontWeight: 400 }}
-                  rows={1} value={item}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <span style={{ paddingTop: 6 }}>-&nbsp;</span>
+                <textarea className="med-input med-input-light" style={{ flex: 1, minWidth: 0, resize: 'vertical', minHeight: '38px', fontWeight: 400 }}
+                  rows={2} value={item}
                   onChange={e => { const a = [...arr]; a[i] = e.target.value; onChange(a) }} />
-                <button className="med-btn-remove" onClick={() => onChange(arr.filter((_, j) => j !== i))}>✕</button>
+                <ReorderControls index={i} length={arr.length} onMove={(from, to) => onChange(moveItem(arr, from, to))} />
+                <button className="med-btn-remove" title="Supprimer" onClick={() => onChange(arr.filter((_, j) => j !== i))}>✕</button>
               </div>
             ) : <span>- {item}</span>}
           </div>
@@ -364,7 +405,25 @@ function SectionDict({ num, section, data, editMode, onChange }) {
       return (
         <div>
           <div style={{ marginLeft: 20 }}>- <strong>{hl(key)} :</strong></div>
-          {val.map((v, i) => <div key={i} style={{ marginLeft: 40 }}>- {v}</div>)}
+          {val.map((v, i) => (
+            <div key={i} style={{ marginLeft: 40 }}>
+              {editMode ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                  <span style={{ paddingTop: 6 }}>-&nbsp;</span>
+                  <textarea className="med-input med-input-light" style={{ flex: 1, minWidth: 0, resize: 'vertical', minHeight: '34px', fontWeight: 400 }}
+                    rows={1} value={v ?? ''}
+                    onChange={e => { const a = [...val]; a[i] = e.target.value; set(key, a) }} />
+                  <ReorderControls index={i} length={val.length} onMove={(from, to) => set(key, moveItem(val, from, to))} />
+                  <button className="med-btn-remove" title="Supprimer" onClick={() => set(key, val.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ) : <span>- {v}</span>}
+            </div>
+          ))}
+          {editMode && (
+            <button className="med-btn-add" style={{ marginLeft: 40 }} onClick={() => set(key, [...val, ''])}>
+              + Ajouter
+            </button>
+          )}
         </div>
       )
     }
@@ -375,22 +434,22 @@ function SectionDict({ num, section, data, editMode, onChange }) {
         <div>
           <div style={{ marginLeft: 20 }}>- <strong>{hl(key)} :</strong></div>
           {sub.map(([k, v]) => (
-            <div key={k} style={{ marginLeft: 40 }}>
-              - {hl(k)} :{' '}
+            <div key={k} style={{ marginLeft: 40, display: 'flex', alignItems: 'center', gap: 6, marginBottom: editMode ? 4 : 0, flexWrap: 'wrap' }}>
+              <span style={{ flexShrink: 0 }}>- {hl(k)} :</span>
               {editMode
-                ? <input className="med-input med-input-light" style={{ width: '140px' }} value={v ?? ''} onChange={e => set(key, { ...val, [k]: e.target.value })} />
-                : v}
+                ? <input className="med-input med-input-light" style={{ flex: 1, minWidth: '140px' }} value={v ?? ''} onChange={e => set(key, { ...val, [k]: e.target.value })} />
+                : <span>{v}</span>}
             </div>
           ))}
         </div>
       )
     }
     return (
-      <div style={{ marginLeft: 20 }}>
-        - <strong>{hl(key)} :</strong>{' '}
+      <div style={{ marginLeft: 20, display: 'flex', alignItems: 'center', gap: 6, marginBottom: editMode ? 4 : 0, flexWrap: 'wrap' }}>
+        <span style={{ flexShrink: 0 }}>- <strong>{hl(key)} :</strong></span>
         {editMode
-          ? <input className="med-input med-input-light" style={{ width: '200px' }} value={val ?? ''} onChange={e => set(key, e.target.value)} />
-          : val}
+          ? <input className="med-input med-input-light" style={{ flex: 1, minWidth: '200px' }} value={val ?? ''} onChange={e => set(key, e.target.value)} />
+          : <span>{val}</span>}
       </div>
     )
   }
@@ -414,12 +473,13 @@ function SectionConclusion({ num, section, value, editMode, onChange }) {
         {items.map((item, i) => (
           <div key={i} className="med-bullet-conclusion">
             {editMode ? (
-              <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-                <span>•&nbsp;</span>
-                <textarea className="med-input" style={{ flex: 1, resize: 'none', minHeight: '28px', fontStyle: 'italic', fontWeight: 700 }}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <span style={{ paddingTop: 6 }}>•&nbsp;</span>
+                <textarea className="med-input" style={{ flex: 1, minWidth: 0, resize: 'vertical', minHeight: '48px', fontStyle: 'italic', fontWeight: 700 }}
                   rows={2} value={item}
                   onChange={e => { const a = [...items]; a[i] = e.target.value; onChange(a) }} />
-                <button className="med-btn-remove" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
+                <ReorderControls index={i} length={items.length} onMove={(from, to) => onChange(moveItem(items, from, to))} />
+                <button className="med-btn-remove" title="Supprimer" onClick={() => onChange(items.filter((_, j) => j !== i))}>✕</button>
               </div>
             ) : <span>• {item}</span>}
           </div>
@@ -439,7 +499,7 @@ function SectionText({ num, section, value, editMode, onChange }) {
       <SecHeader num={num} label={section.label} />
       <div style={{ marginLeft: 20, whiteSpace: 'pre-wrap' }}>
         {editMode
-          ? <textarea className="med-input med-input-light" style={{ width: '100%', minHeight: '40px', resize: 'none', fontWeight: 400 }} rows={lineCount} value={value ?? ''} onChange={e => onChange(e.target.value)} />
+          ? <textarea className="med-input med-input-light" style={{ width: '100%', minHeight: '60px', resize: 'vertical', fontWeight: 400 }} rows={lineCount} value={value ?? ''} onChange={e => onChange(e.target.value)} />
           : value}
       </div>
     </div>

@@ -688,21 +688,52 @@ select.form-input { cursor: pointer; }
 
 /* Edit mode inputs */
 .med-input {
-  border: 1px solid #93c5fd; border-radius: 2px;
-  padding: 1px 5px; font-size: 13px;
+  border: 1px solid #93c5fd; border-radius: 4px;
+  padding: 4px 8px; font-size: 13px;
   font-family: inherit; font-weight: 700;
   background: #eff6ff; outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  min-height: 26px;
+  box-sizing: border-box;
+}
+.med-input:focus {
+  border-color: #2563eb;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 .med-input-light { font-weight: 400; }
 .med-btn-add {
   border: 1px dashed #93c5fd; background: none; cursor: pointer;
-  color: #2563eb; font-size: 12px; padding: 2px 10px;
-  margin-top: 4px; margin-left: 20px; border-radius: 2px;
+  color: #2563eb; font-size: 12px; padding: 4px 12px;
+  margin-top: 6px; margin-left: 20px; border-radius: 4px;
   font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
 }
+.med-btn-add:hover { background: #eff6ff; border-color: #2563eb; }
 .med-btn-remove {
   border: none; background: none; cursor: pointer;
-  color: #ef4444; font-size: 12px; padding: 0 3px; line-height: 1;
+  color: #ef4444; font-size: 14px; padding: 2px 6px; line-height: 1;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.med-btn-remove:hover { background: rgba(239, 68, 68, 0.1); }
+.med-btn-move {
+  border: 1px solid #cbd5e1; background: #fff; cursor: pointer;
+  color: #475569; font-size: 11px; padding: 0; line-height: 1;
+  border-radius: 4px;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+.med-btn-move:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #2563eb;
+}
+.med-btn-move:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ── Responsive breakpoints ── */

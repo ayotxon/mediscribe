@@ -13,6 +13,7 @@ export default function HomePage() {
   const navigate = useNavigate()
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [pendingItems, setPendingItems] = useState([])
   const [showPendingDetail, setShowPendingDetail] = useState(false)
@@ -24,11 +25,24 @@ export default function HomePage() {
     setPendingCount(items.length)
   }
 
+  // Don't silently render an empty list on a failed fetch — testers reported
+  // "Aucun rapport" after the access cookie expired, which only resolved on
+  // re-login. Surface the failure so the user can retry instead.
+  async function loadReports() {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const data = await getReports()
+      setReports(data?.reports || [])
+    } catch (err) {
+      setLoadError(err?.message || 'Impossible de charger les rapports')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    getReports()
-      .then(data => setReports(data?.reports || []))
-      .catch(() => setReports([]))
-      .finally(() => setLoading(false))
+    loadReports()
     refreshPending()
 
     // Refresh the pending list when the tab regains focus — the queue may
@@ -42,7 +56,7 @@ export default function HomePage() {
     setRetrying(true)
     await retryPending()
     await refreshPending()
-    getReports().then(data => setReports(data?.reports || [])).catch(() => {})
+    await loadReports()
     setRetrying(false)
   }
 
@@ -313,7 +327,20 @@ export default function HomePage() {
           </div>
         )}
 
-        {!loading && reports.length === 0 && (
+        {!loading && loadError && (
+          <div className="empty-state animate-fade-in">
+            <div className="empty-state-icon">⚠️</div>
+            <p style={{ marginBottom: 4 }}>Impossible de charger les rapports.</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: 16 }}>
+              {loadError}
+            </p>
+            <button className="btn btn-primary" onClick={loadReports}>
+              Réessayer
+            </button>
+          </div>
+        )}
+
+        {!loading && !loadError && reports.length === 0 && (
           <div className="empty-state animate-fade-in">
             <div className="empty-state-icon">🎙️</div>
             <p>Aucun rapport pour l'instant.</p>
@@ -323,7 +350,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {!loading && reports.length > 0 && (
+        {!loading && !loadError && reports.length > 0 && (
           <div className="reports-card animate-fade-in">
             {reports.slice(0, 8).map(r => {
               const examType = getExamType(r.exam_type)
