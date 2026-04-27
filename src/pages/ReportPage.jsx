@@ -392,12 +392,27 @@ function SectionList({ num, section, items, editMode, onChange }) {
   )
 }
 
+// Reorder dict keys by rebuilding the object — JS preserves string-key
+// insertion order, which is the order Object.entries (and our renderer) uses.
+function reorderDictKeys(data, fromIdx, toIdx) {
+  const entries = Object.entries(data || {})
+  if (toIdx < 0 || toIdx >= entries.length) return data
+  const [item] = entries.splice(fromIdx, 1)
+  entries.splice(toIdx, 0, item)
+  return Object.fromEntries(entries)
+}
+
 // ── section_dict ──────────────────────────────────────────────────────────────
 function SectionDict({ num, section, data, editMode, onChange }) {
   if (isBlank(data) && !editMode) return null
   const entries = Object.entries(data || {}).filter(([, v]) => !isBlank(v) || editMode)
   if (!entries.length && !editMode) return null
   function set(k, v) { onChange({ ...(data || {}), [k]: v }) }
+  function removeKey(k) {
+    const next = { ...(data || {}) }
+    delete next[k]
+    onChange(next)
+  }
 
   function renderVal(key, val) {
     if (Array.isArray(val)) {
@@ -457,7 +472,21 @@ function SectionDict({ num, section, data, editMode, onChange }) {
   return (
     <div className="med-section">
       <SecHeader num={num} label={section.label} />
-      {entries.map(([k, v]) => <div key={k}>{renderVal(k, v)}</div>)}
+      {entries.map(([k, v], idx) => (
+        <div key={k} style={editMode ? { display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 } : undefined}>
+          <div style={editMode ? { flex: 1, minWidth: 0 } : undefined}>{renderVal(k, v)}</div>
+          {editMode && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, paddingTop: 2, flexShrink: 0 }}>
+              <ReorderControls
+                index={idx}
+                length={entries.length}
+                onMove={(from, to) => onChange(reorderDictKeys(data, from, to))}
+              />
+              <button className="med-btn-remove" title="Supprimer" onClick={() => removeKey(k)}>✕</button>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
