@@ -39,6 +39,33 @@ function normalizeStructured(examTypeId, structured) {
   return out
 }
 
+// Bake the dictating doctor's identity into the saved report so the
+// "Adressé par" line and the signature stay attached to the report even if
+// another user logs in and opens it. Only fills missing fields.
+function attachDoctorIdentity(structured, doctorProfile) {
+  if (!structured || typeof structured !== 'object' || !doctorProfile) return structured
+  const out = { ...structured }
+  const parts = [doctorProfile.first_name, doctorProfile.last_name].filter(Boolean)
+  const drName = parts.length
+    ? `Dr ${parts.join(' ')}`
+    : (doctorProfile.email ? `Dr ${doctorProfile.email.split('@')[0]}` : null)
+  if (!drName) return out
+  if (out.referred_by == null || out.referred_by === '') {
+    out.referred_by = drName
+  }
+  if (out.signature == null || out.signature === '') {
+    const sigLines = [
+      drName,
+      doctorProfile.specialty || null,
+      doctorProfile.rpps
+        ? `RPPS : ${doctorProfile.rpps}`
+        : (doctorProfile.ordre ? `N° Ordre : ${doctorProfile.ordre}` : null)
+    ].filter(Boolean)
+    out.signature = sigLines.join('\n')
+  }
+  return out
+}
+
 const MAX_ATTEMPTS = 3   // show-but-don't-retry threshold (never silent drop)
 
 // ── Recording-side helpers ────────────────────────────────────────────────────
@@ -102,6 +129,7 @@ export async function processSession(sessionId, cb = {}) {
     cb.onProgress?.(sessionId, 'structuring')
     const res = await structureExam(transcript, session.meta.examTypeId, session.meta.prompt)
     structured = normalizeStructured(session.meta.examTypeId, res.structured)
+    structured = attachDoctorIdentity(structured, session.meta.doctorProfile)
     await updateSession(sessionId, { structured, state: 'structured' })
   }
 

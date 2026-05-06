@@ -75,6 +75,25 @@ function formatDate(iso) {
 function formatDateShort(iso) {
   return new Date(iso).toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' })
 }
+// ISO → "yyyy-mm-dd" using LOCAL date components so the input picker doesn't
+// drift one day in negative-UTC timezones (e.g. WAT/CET dates becoming UTC).
+function isoToDateInput(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+// "yyyy-mm-dd" → ISO string anchored at noon local time so the calendar day
+// is preserved across any timezone the report is later opened in.
+function dateInputToIso(s) {
+  if (!s) return null
+  const [y, m, d] = s.split('-').map(Number)
+  if (!y || !m || !d) return null
+  return new Date(y, m - 1, d, 12, 0, 0).toISOString()
+}
 
 // ── Inline editable field ─────────────────────────────────────────────────────
 function EF({ val, onChange, editMode, multi = false, w = '110px', light = false }) {
@@ -164,7 +183,7 @@ function DoctorLetterhead({ profile, createdAt, fallbackEmail }) {
 }
 
 // ── Patient header block ──────────────────────────────────────────────────────
-function PatientHeader({ report, data, editMode, onChange, doctorName, showEchogenicite }) {
+function PatientHeader({ report, data, editMode, onChange, doctorName, showEchogenicite, effectiveDate }) {
   const p = data?.patient || {}
   function sp(k, v) { onChange('patient', { ...p, [k]: v }) }
 
@@ -210,7 +229,13 @@ function PatientHeader({ report, data, editMode, onChange, doctorName, showEchog
         {(!isBlank(p.sc) || editMode) && (
           <span>SC :{' '}<EF val={p.sc} onChange={v => sp('sc', v)} editMode={editMode} w="50px" /></span>
         )}
-        <span>Date : <strong>{formatDateShort(report.created_at)}</strong></span>
+        <span>Date :{' '}
+          {editMode
+            ? <input type="date" className="med-input" style={{ width: '150px' }}
+                value={isoToDateInput(effectiveDate)}
+                onChange={e => onChange('report_date', dateInputToIso(e.target.value))} />
+            : <strong>{formatDateShort(effectiveDate)}</strong>}
+        </span>
       </div>
 
       {/* Indication */}
@@ -251,6 +276,10 @@ function PatientHeader({ report, data, editMode, onChange, doctorName, showEchog
 }
 
 // ── Cell item — standalone component (NOT nested) to avoid closure/remount bugs ─
+// Each (label/prefix + value) atom is wrapped in `whiteSpace: nowrap` so the
+// label and its value never split across two lines (e.g. "E/E' = 10" stays
+// glued together, even on narrow viewports). The cell itself can still wrap
+// between atoms.
 function CellItem({ item, data, editMode, onSet }) {
   if (!item) return null
 
@@ -259,13 +288,18 @@ function CellItem({ item, data, editMode, onSet }) {
     if (!editMode && !hasAny && !item.label) return null
     return (
       <span>
-        {item.label ? <>{item.label} :&nbsp;</> : null}
+        {item.label
+          ? <span style={{ whiteSpace: 'nowrap', marginRight: 8 }}>{item.label} :&nbsp;</span>
+          : null}
         {item.items.map((ci, i) => {
           const v = data?.[ci.key]
           if (!editMode && isBlank(v)) return null
+          // Strip leading whitespace separators from prefixes — we use
+          // marginRight on each atom for spacing instead.
+          const prefix = (ci.prefix || '').replace(/^\s+/, '')
           return (
-            <span key={i}>
-              {ci.prefix}
+            <span key={i} style={{ display: 'inline-block', whiteSpace: 'nowrap', marginRight: 10 }}>
+              {prefix}
               {editMode
                 ? <input className="med-input" style={{ width: '72px' }} value={v ?? ''}
                     onChange={e => onSet(ci.key, e.target.value)} />
@@ -280,12 +314,15 @@ function CellItem({ item, data, editMode, onSet }) {
 
   const v = data?.[item.key]
   return (
-    <span>
+    <span style={{ whiteSpace: 'nowrap' }}>
       {item.label ? `${item.label} :  ` : ''}
       {editMode
         ? <input className="med-input" style={{ width: '92px' }} value={v ?? ''}
             onChange={e => onSet(item.key, e.target.value)} />
-        : isBlank(v) ? '' : <strong>{v}</strong>}
+        : isBlank(v) ? '' : <>
+            <strong>{v}</strong>
+            {item.suffix ? <span>{item.suffix}</span> : null}
+          </>}
     </span>
   )
 }
@@ -591,7 +628,11 @@ function MedicalDocument({ report, data, editMode, onChange, profile, userEmail 
   function set(key, val) { onChange({ ...safeData, [key]: val }) }
 
   // Keys handled by the patient block / signature block (never shown as extra)
-  const PATIENT_KEYS = new Set(['patient', 'indication', 'echogenicite', 'qualite_technique', 'referred_by', 'signature'])
+  const PATIENT_KEYS = new Set(['patient', 'indication', 'echogenicite', 'qualite_technique', 'referred_by', 'signature', 'report_date'])
+
+  // Effective document date — the user-edited override wins over the
+  // server-side created_at so retro-dated reports are supported.
+  const effectiveDate = safeData.report_date || report.created_at
   // Keys covered by the layout
   const layoutDataKeys = new Set(layout.map(s => s.dataKey))
 
@@ -613,7 +654,7 @@ function MedicalDocument({ report, data, editMode, onChange, profile, userEmail 
     <div id="print-area" className="med-doc">
 
       {/* ── Doctor letterhead ── */}
-      <DoctorLetterhead profile={profile} createdAt={report.created_at} fallbackEmail={userEmail} />
+      <DoctorLetterhead profile={profile} createdAt={effectiveDate} fallbackEmail={userEmail} />
 
       {/* ── Exam title ── */}
       <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '15px', textDecoration: 'underline', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '16px' }}>
@@ -628,6 +669,7 @@ function MedicalDocument({ report, data, editMode, onChange, profile, userEmail 
         onChange={set}
         doctorName={doctorName}
         showEchogenicite={examType.showEchogenicite}
+        effectiveDate={effectiveDate}
       />
 
       {/* ── Dynamic layout sections ── */}

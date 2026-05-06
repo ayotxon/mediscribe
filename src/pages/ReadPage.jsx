@@ -301,13 +301,24 @@ export default function ReadPage() {
       const patientName = selectedPatient
         ? `${selectedPatient.first_name} ${selectedPatient.last_name}`
         : patientQuery || null
+      // Snapshot the dictating doctor — baked into the report so it stays
+      // attached even if a different user opens the report later.
+      const dProfile = user?.profile || {}
       const meta = {
         examTypeId:  selectedType.id,
         prompt:      selectedType.prompt,
         patientName,
         patientId:   selectedPatient?.id || null,
         indication:  indication || null,
-        userId:      user?.id
+        userId:      user?.id,
+        doctorProfile: {
+          first_name: dProfile.first_name || null,
+          last_name:  dProfile.last_name  || null,
+          email:      dProfile.email || user?.email || null,
+          specialty:  dProfile.specialty || dProfile.specialite || null,
+          rpps:       dProfile.rpps  || null,
+          ordre:      dProfile.ordre || null
+        }
       }
       const sessionId = await createRecordingSession(meta, mimeType)
       sessionIdRef.current = sessionId

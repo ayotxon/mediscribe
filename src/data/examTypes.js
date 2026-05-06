@@ -76,7 +76,7 @@ export const EXAM_TYPES = {
             }
           ],
           [
-            { key: 'fe',              label: 'FE',            normal: '0,60-0,80' },
+            { key: 'fe',              label: 'FE',            normal: '(60-80 %)', suffix: ' %' },
             { key: 'tapse_mm',        label: 'TAPSE',         normal: null        }
           ]
         ]
@@ -124,8 +124,8 @@ GLOSSAIRE des formes parlées → clé JSON :
 - pp_diastole_mm  ← "PP diastole", "PP en diastole", "paroi postérieure en diastole", "paroi postérieure diastolique"
 - pp_systole_mm   ← "PP systole", "PP en systole", "paroi postérieure en systole", "paroi postérieure systolique"
 - vd_diastole_mm  ← "VD diastole", "VD en diastole", "ventricule droit diastolique", "ventricule droit"
-- fr_pct          ← "FR", "fraction de raccourcissement"
-- fe              ← "FE", "fraction d'éjection"
+- fr_pct          ← "FR", "fraction de raccourcissement" (en %)
+- fe              ← "FE", "fraction d'éjection" (TOUJOURS en %, jamais en décimale : "0.65" ou "65 %" → 65)
 - e_a_ratio       ← "E/A", "E sur A", "rapport E sur A"
 - e_eprime        ← "E/E'", "E sur E prime", "E sur E'"
 - vog_ml          ← "VOG", "volume OG", "volume oreillette gauche"
