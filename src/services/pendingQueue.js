@@ -8,6 +8,7 @@
  */
 
 import { transcribeAudio, structureExam, saveReport } from './api.js'
+import { EXAM_TYPES } from '../data/examTypes.js'
 import {
   createSession, getSession, getSessionRaw, listSessionsRaw, updateSession,
   incrementAttempts, deleteSession,
@@ -15,6 +16,28 @@ import {
   hasEncryptionKey, LockedError,
   migrateLegacyQueue
 } from './audioStorage.js'
+
+// Reorder dict-shaped sections to the canonical key order declared in the
+// exam type's layout (e.g. doppler → mitrale, aorte, pulmonaire, tricuspide).
+// Runs once at structure time so the saved report is canonical; user reorders
+// after that are preserved as-is in the JSON object's key order.
+function normalizeStructured(examTypeId, structured) {
+  const examType = EXAM_TYPES?.[examTypeId]
+  if (!examType?.layout || !structured || typeof structured !== 'object') return structured
+  const out = { ...structured }
+  for (const section of examType.layout) {
+    if (!section.keyOrder || !section.dataKey) continue
+    const cur = out[section.dataKey]
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) continue
+    const ordered = {}
+    for (const k of section.keyOrder) ordered[k] = (k in cur) ? cur[k] : null
+    for (const [k, v] of Object.entries(cur)) {
+      if (!section.keyOrder.includes(k)) ordered[k] = v
+    }
+    out[section.dataKey] = ordered
+  }
+  return out
+}
 
 const MAX_ATTEMPTS = 3   // show-but-don't-retry threshold (never silent drop)
 
@@ -78,7 +101,7 @@ export async function processSession(sessionId, cb = {}) {
   if (!structured) {
     cb.onProgress?.(sessionId, 'structuring')
     const res = await structureExam(transcript, session.meta.examTypeId, session.meta.prompt)
-    structured = res.structured
+    structured = normalizeStructured(session.meta.examTypeId, res.structured)
     await updateSession(sessionId, { structured, state: 'structured' })
   }
 

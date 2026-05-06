@@ -192,7 +192,13 @@ function PatientHeader({ report, data, editMode, onChange, doctorName, showEchog
 
       {/* Row 2 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '4px', alignItems: 'baseline' }}>
-        <span>Adressé par : <strong>{doctorName || 'Dr ___________________'}</strong></span>
+        <span>Adressé par :{' '}
+          {editMode
+            ? <input className="med-input" style={{ width: '180px' }}
+                value={data?.referred_by ?? doctorName ?? ''}
+                onChange={e => onChange('referred_by', e.target.value)} />
+            : <strong>{data?.referred_by || doctorName || 'Dr ___________________'}</strong>}
+        </span>
         {(!isBlank(p.age) || editMode) && (
           <span>Age :{' '}<EF val={p.age} onChange={v => sp('age', v)} editMode={editMode} w="50px" />
             {!editMode && p.age ? ' ans' : ''}
@@ -219,23 +225,25 @@ function PatientHeader({ report, data, editMode, onChange, doctorName, showEchog
       )}
 
       {/* Echogénicité */}
-      {showEchogenicite && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '24px', marginTop: '2px' }}>
-          <span style={{ textDecoration: 'underline' }}>Echogénicité</span>
-          {['Bonne', 'Moyenne', 'Médiocre'].map(opt => (
-            <span key={opt}
-              onClick={editMode ? () => onChange('echogenicite', opt) : undefined}
-              style={{
-                fontWeight: data?.echogenicite === opt ? 700 : 400,
-                textDecoration: data?.echogenicite === opt ? 'underline' : 'none',
-                cursor: editMode ? 'pointer' : 'default',
-                padding: editMode ? '0 8px' : '0',
-                borderRadius: editMode && data?.echogenicite === opt ? '3px' : '0',
-                background: editMode && data?.echogenicite === opt ? '#dbeafe' : 'none',
-              }}>
-              {opt}
-            </span>
-          ))}
+      {showEchogenicite && (editMode || data?.echogenicite) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: editMode ? '24px' : '8px', marginTop: '2px' }}>
+          <span style={{ textDecoration: 'underline' }}>Echogénicité{editMode ? '' : ' :'}</span>
+          {editMode
+            ? ['Bonne', 'Moyenne', 'Médiocre'].map(opt => (
+                <span key={opt}
+                  onClick={() => onChange('echogenicite', opt)}
+                  style={{
+                    fontWeight: data?.echogenicite === opt ? 700 : 400,
+                    textDecoration: data?.echogenicite === opt ? 'underline' : 'none',
+                    cursor: 'pointer',
+                    padding: '0 8px',
+                    borderRadius: data?.echogenicite === opt ? '3px' : '0',
+                    background: data?.echogenicite === opt ? '#dbeafe' : 'none',
+                  }}>
+                  {opt}
+                </span>
+              ))
+            : <strong>{data?.echogenicite}</strong>}
         </div>
       )}
     </div>
@@ -582,8 +590,8 @@ function MedicalDocument({ report, data, editMode, onChange, profile, userEmail 
 
   function set(key, val) { onChange({ ...safeData, [key]: val }) }
 
-  // Keys handled by the patient block (never shown as extra)
-  const PATIENT_KEYS = new Set(['patient', 'indication', 'echogenicite', 'qualite_technique'])
+  // Keys handled by the patient block / signature block (never shown as extra)
+  const PATIENT_KEYS = new Set(['patient', 'indication', 'echogenicite', 'qualite_technique', 'referred_by', 'signature'])
   // Keys covered by the layout
   const layoutDataKeys = new Set(layout.map(s => s.dataKey))
 
@@ -657,28 +665,40 @@ function MedicalDocument({ report, data, editMode, onChange, profile, userEmail 
         )
       })()}
 
-      {/* ── Signature ── */}
-      <div style={{ marginTop: 40, display: 'flex', justifyContent: 'flex-end' }}>
-        <div style={{ textAlign: 'center', minWidth: 180 }}>
-          <div style={{ height: 48, borderBottom: '1px solid #000', marginBottom: 6 }} />
-          <div style={{ fontWeight: 700, fontSize: '13px' }}>
-            {doctorName || 'Dr ___________________'}
-          </div>
-          {(profile?.specialty || profile?.specialite) && (
-            <div style={{ fontSize: '11px', color: '#444', marginTop: 2 }}>
-              {profile.specialty || profile.specialite}
+      {/* ── Signature (editable) ── */}
+      {(() => {
+        const defaultSignature = [
+          doctorName || 'Dr ___________________',
+          profile?.specialty || profile?.specialite || null,
+          profile?.rpps ? `RPPS : ${profile.rpps}` : (profile?.ordre ? `N° Ordre : ${profile.ordre}` : null)
+        ].filter(Boolean).join('\n')
+        const sigVal = (typeof safeData.signature === 'string')
+          ? safeData.signature
+          : defaultSignature
+        return (
+          <div style={{ marginTop: 40, display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ textAlign: 'center', minWidth: 220 }}>
+              <div style={{ height: 48, borderBottom: '1px solid #000', marginBottom: 6 }} />
+              {editMode ? (
+                <textarea
+                  className="med-input"
+                  style={{ width: '100%', textAlign: 'center', fontWeight: 700, fontSize: '13px', resize: 'vertical', minHeight: '64px', lineHeight: 1.4 }}
+                  rows={3}
+                  value={sigVal}
+                  onChange={e => set('signature', e.target.value)}
+                />
+              ) : (
+                <div style={{ whiteSpace: 'pre-line', fontWeight: 700, fontSize: '13px', lineHeight: 1.4 }}>
+                  {sigVal}
+                </div>
+              )}
+              <div style={{ fontSize: '11px', color: '#888', marginTop: 4 }}>
+                Signature &amp; Cachet
+              </div>
             </div>
-          )}
-          {(profile?.rpps || profile?.ordre) && (
-            <div style={{ fontSize: '10px', color: '#666', marginTop: 2 }}>
-              {profile.rpps ? `RPPS : ${profile.rpps}` : `N° Ordre : ${profile.ordre}`}
-            </div>
-          )}
-          <div style={{ fontSize: '11px', color: '#888', marginTop: 4 }}>
-            Signature &amp; Cachet
           </div>
-        </div>
-      </div>
+        )
+      })()}
 
     </div>
   )

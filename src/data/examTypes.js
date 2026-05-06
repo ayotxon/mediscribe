@@ -90,7 +90,8 @@ export const EXAM_TYPES = {
       {
         type: 'section_dict',
         dataKey: 'doppler',
-        label: 'DOPPLER'
+        label: 'DOPPLER',
+        keyOrder: ['mitrale', 'aorte', 'pulmonaire', 'tricuspide']
       },
       {
         type: 'section_conclusion',
@@ -99,15 +100,45 @@ export const EXAM_TYPES = {
       }
     ],
 
-    prompt: `Tu es un médecin spécialiste en imagerie cardiaque. Tu structures une dictée d'échographie.
+    prompt: `Tu es un médecin spécialiste en imagerie cardiaque. Tu structures une dictée d'échographie Doppler cardiaque.
 
 RÈGLES ABSOLUES — ANTI-HALLUCINATION:
 1. N'invente JAMAIS une valeur, même plausible. Toute valeur non dite explicitement = null.
 2. Ne déduis pas, ne calcule pas, ne complète pas. Tu retranscris uniquement ce qui est dit.
 3. Si la dictée est incomplète ou ambiguë, garde null. Ne fais jamais de supposition.
 4. Retourne UNIQUEMENT du JSON valide, sans commentaire, sans markdown.
+5. Conserve STRICTEMENT l'ordre des clés tel que défini ci-dessous, même si la dictée évoque les paramètres dans un autre ordre.
 
-Retourne UNIQUEMENT ce JSON:
+EXTRACTION EXHAUSTIVE — sois TRÈS rigoureux : à CHAQUE écoute d'un paramètre, place sa valeur dans la bonne clé JSON, quelles que soient les variantes parlées. NE LAISSE PAS null si la valeur est dite (même brièvement, même sans unité).
+
+GLOSSAIRE des formes parlées → clé JSON :
+- ao_initiale_mm  ← "AO initiale", "aorte initiale", "racine aortique"
+- sigmoides_mm    ← "sigmoïdes", "anneau aortique"
+- og_mm           ← "OG", "OG systole", "oreillette gauche"
+- vg_diastole_mm  ← "VG diastole", "VG en diastole", "ventricule gauche diastolique", "DTD"
+- vg_systole_mm   ← "VG systole", "VG en systole", "ventricule gauche systolique", "DTS"
+- masse_g_m2      ← "masse VG", "masse ventriculaire", "masse"
+- hr_ratio        ← "h/r", "h sur r", "rapport h/r", "hauteur sur rayon"
+- sv_diastole_mm  ← "SIV diastole", "SIV en diastole", "septum diastole", "septum interventriculaire diastolique", "épaisseur septale en diastole"
+- sv_systole_mm   ← "SIV systole", "SIV en systole", "septum systole", "septum interventriculaire systolique", "épaisseur septale en systole"
+- pp_diastole_mm  ← "PP diastole", "PP en diastole", "paroi postérieure en diastole", "paroi postérieure diastolique"
+- pp_systole_mm   ← "PP systole", "PP en systole", "paroi postérieure en systole", "paroi postérieure systolique"
+- vd_diastole_mm  ← "VD diastole", "VD en diastole", "ventricule droit diastolique", "ventricule droit"
+- fr_pct          ← "FR", "fraction de raccourcissement"
+- fe              ← "FE", "fraction d'éjection"
+- e_a_ratio       ← "E/A", "E sur A", "rapport E sur A"
+- e_eprime        ← "E/E'", "E sur E prime", "E sur E'"
+- vog_ml          ← "VOG", "volume OG", "volume oreillette gauche"
+- vtd_ml          ← "VOD", "volume OD", "volume oreillette droite"
+- tapse_mm        ← "TAPSE"
+
+CHIFFRES : accepte les unités exprimées ou non ("9 mm" ou "9" → 9). Pour les ratios (h/r, E/A, E/E'), garde la forme parlée ("0.5", "0,5", "1/2").
+
+ÉCHOGÉNÉCITÉ : valeur dictée littéralement (par ex. "bonne", "moyenne", "médiocre", "satisfaisante"). Si non mentionnée, null.
+
+DOPPLER : chaque sous-clé (mitrale, aorte, pulmonaire, tricuspide) reçoit le commentaire dicté pour ce flux. CONSERVE TOUJOURS l'ordre suivant : mitrale → aorte → pulmonaire → tricuspide, même si la dictée les aborde dans un autre ordre.
+
+Retourne UNIQUEMENT ce JSON, en CONSERVANT cet ordre exact des clés:
 {
   "patient": { "nom": null, "age": null, "sexe": null, "poids": null, "taille": null, "sc": null },
   "indication": null,
