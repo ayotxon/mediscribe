@@ -813,6 +813,20 @@ export default function ReportPage() {
     try { await deleteReport(id); navigate('/') } catch { /* noop */ }
   }
 
+  function toggleTranscript() {
+    setShowTranscript(s => {
+      const next = !s
+      if (next) {
+        // Defer the scroll so the panel is in the DOM before we measure it
+        setTimeout(() => {
+          document.getElementById('doc-transcript-panel')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 60)
+      }
+      return next
+    })
+  }
+
   if (loading) return <div className="page" style={{ justifyContent: 'center', alignItems: 'center' }}><div className="spinner" /></div>
   if (!report) return (
     <div className="page" style={{ justifyContent: 'center', padding: 24 }}>
@@ -843,6 +857,23 @@ export default function ReportPage() {
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
           {!editMode ? (
             <>
+              {report.transcript && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={toggleTranscript}
+                  title="Voir la transcription brute"
+                  aria-pressed={showTranscript}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15 }}>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                  <span>Audio</span>
+                </button>
+              )}
               <button className="btn btn-secondary btn-sm" onClick={() => setEditMode(true)}>✏️</button>
               <button className="btn btn-primary btn-sm" onClick={() => window.print()}>🖨️ PDF</button>
               <button onClick={handleDelete} className="btn-icon-danger" style={{ padding: '6px 8px' }}>
@@ -874,14 +905,40 @@ export default function ReportPage() {
         />
 
         {report.transcript && (
-          <div className="doc-transcript-wrap no-print">
-            <button onClick={() => setShowTranscript(s => !s)} className="doc-transcript-toggle">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 13, height: 13 }}>
+          <div id="doc-transcript-panel" className="doc-transcript-wrap no-print">
+            <button onClick={toggleTranscript} className="doc-transcript-toggle" aria-expanded={showTranscript}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
                 <polyline points={showTranscript ? '18,15 12,9 6,15' : '6,9 12,15 18,9'}/>
               </svg>
-              {showTranscript ? 'Masquer' : 'Afficher'} la transcription brute
+              <strong style={{ color: 'var(--text-primary)' }}>
+                {showTranscript ? 'Masquer' : 'Afficher'} la transcription
+              </strong>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                — texte brut de la dictée
+              </span>
             </button>
-            {showTranscript && <div className="doc-transcript-body">{report.transcript}</div>}
+            {showTranscript && (
+              <div className="doc-transcript-body">
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 12, marginBottom: 10, paddingBottom: 8,
+                  borderBottom: '1px solid var(--border-color, #e2e8f0)'
+                }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    Transcription brute
+                  </div>
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(report.transcript).catch(() => {})}
+                    className="btn btn-secondary btn-sm"
+                    title="Copier la transcription"
+                    style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                  >
+                    Copier
+                  </button>
+                </div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{report.transcript}</div>
+              </div>
+            )}
           </div>
         )}
         <div style={{ height: 48 }} />
