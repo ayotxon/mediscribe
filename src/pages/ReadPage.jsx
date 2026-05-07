@@ -698,66 +698,67 @@ export default function ReadPage() {
                         )}
                       </>
                     )}
-
-                    {!showNewPatientForm && (
-                      <div className="sheet-create-row" onClick={() => setShowNewPatientForm(true)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
-                          <circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/>
-                          <line x1="19" y1="8" x2="23" y2="8"/><line x1="21" y1="6" x2="21" y2="10"/>
-                        </svg>
-                        Créer un nouveau patient
-                      </div>
-                    )}
-
-                    {showNewPatientForm && (
-                      <div className="sheet-create-form">
-                        <div className="new-patient-form-title">Nouveau patient</div>
-                        <div className="form-row">
-                          <input
-                            className="form-input-half"
-                            placeholder="Prénom *"
-                            value={newPatient.first_name}
-                            onChange={e => setNewPatient(p => ({ ...p, first_name: e.target.value }))}
-                          />
-                          <input
-                            className="form-input-half"
-                            placeholder="Nom *"
-                            value={newPatient.last_name}
-                            onChange={e => setNewPatient(p => ({ ...p, last_name: e.target.value }))}
-                          />
-                        </div>
-                        <div className="form-row">
-                          <input
-                            className="form-input-half"
-                            type="date"
-                            value={newPatient.date_of_birth}
-                            onChange={e => setNewPatient(p => ({ ...p, date_of_birth: e.target.value }))}
-                          />
-                          <select
-                            className="form-input-half"
-                            value={newPatient.sex}
-                            onChange={e => setNewPatient(p => ({ ...p, sex: e.target.value }))}
-                          >
-                            <option value="">Sexe</option>
-                            <option value="M">Masculin</option>
-                            <option value="F">Féminin</option>
-                          </select>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                          <button
-                            className="btn btn-primary btn-sm"
-                            onClick={handleCreatePatient}
-                            disabled={creatingPatient || !newPatient.first_name || !newPatient.last_name}
-                          >
-                            {creatingPatient ? 'Création…' : 'Créer'}
-                          </button>
-                          <button className="btn btn-secondary btn-sm" onClick={() => setShowNewPatientForm(false)}>
-                            Annuler
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
+
+                  {/* Sticky footer — always visible regardless of how the list scrolls */}
+                  {!showNewPatientForm && (
+                    <div className="sheet-create-row" onClick={() => setShowNewPatientForm(true)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                        <circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/>
+                        <line x1="19" y1="8" x2="23" y2="8"/><line x1="21" y1="6" x2="21" y2="10"/>
+                      </svg>
+                      Créer un nouveau patient
+                    </div>
+                  )}
+
+                  {showNewPatientForm && (
+                    <div className="sheet-create-form">
+                      <div className="new-patient-form-title">Nouveau patient</div>
+                      <div className="form-row">
+                        <input
+                          className="form-input-half"
+                          placeholder="Prénom *"
+                          value={newPatient.first_name}
+                          onChange={e => setNewPatient(p => ({ ...p, first_name: e.target.value }))}
+                        />
+                        <input
+                          className="form-input-half"
+                          placeholder="Nom *"
+                          value={newPatient.last_name}
+                          onChange={e => setNewPatient(p => ({ ...p, last_name: e.target.value }))}
+                        />
+                      </div>
+                      <div className="form-row">
+                        <input
+                          className="form-input-half"
+                          type="date"
+                          value={newPatient.date_of_birth}
+                          onChange={e => setNewPatient(p => ({ ...p, date_of_birth: e.target.value }))}
+                        />
+                        <select
+                          className="form-input-half"
+                          value={newPatient.sex}
+                          onChange={e => setNewPatient(p => ({ ...p, sex: e.target.value }))}
+                        >
+                          <option value="">Sexe</option>
+                          <option value="M">Masculin</option>
+                          <option value="F">Féminin</option>
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={handleCreatePatient}
+                          disabled={creatingPatient || !newPatient.first_name || !newPatient.last_name}
+                        >
+                          {creatingPatient ? 'Création…' : 'Créer'}
+                        </button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setShowNewPatientForm(false)}>
+                          Annuler
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

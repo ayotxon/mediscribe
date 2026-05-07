@@ -89,6 +89,10 @@ export async function transcribeAudio(audioBlob) {
     const form = new FormData()
     form.append('audio', audioBlob, `recording.${ext}`)
     form.append('language', 'fr')
+    // Tells the backend this is a single-speaker medical dictation so it
+    // SKIPS the Claude dialogue post-process that adds "Médecin :" labels
+    // and silently drops unfamiliar words as [inaudible].
+    form.append('mode', 'dictation')
     return form
   }
 

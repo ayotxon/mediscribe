@@ -355,15 +355,22 @@ select.form-input { cursor: pointer; }
 .sheet-patient-meta { font-size: 0.72rem; color: var(--text-muted); display: block; }
 .sheet-create-row {
   display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px; cursor: pointer;
+  padding: 14px 16px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  cursor: pointer;
   color: var(--accent-gold); font-size: 0.88rem; font-weight: 600;
   border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
   transition: background var(--transition-fast);
+  flex-shrink: 0;
 }
 .sheet-create-row:hover { background: rgba(212,165,116,0.06); }
 .sheet-create-form {
-  padding: var(--space-md); background: var(--bg-card);
+  padding: var(--space-md);
+  padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom));
+  background: var(--bg-card);
   border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 .patient-trigger {
   width: 100%; display: flex; align-items: center; gap: 10px;
