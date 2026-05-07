@@ -11,7 +11,7 @@ const LABELS = {
   hr_ratio:'h/r', sv_diastole_mm:'SIV Diastole', sv_systole_mm:'SIV Systole',
   pp_diastole_mm:'PP Diastole', pp_systole_mm:'PP Systole',
   vd_diastole_mm:'VD Diastole', fr_pct:'FR', fe:'FE',
-  e_a_ratio:'E/A', e_eprime:"E/E'", vog_ml:'VOG', vtd_ml:'VOD', tapse_mm:'TAPSE',
+  e_a_ratio:'E/A', e_eprime:"E/E'", vog_ml:'VOG', vod_ml:'VOD', vtd_ml:'VOD', tapse_mm:'TAPSE',
   mitrale:'Mitrale', aorte:'Aorte', pulmonaire:'Pulmonaire', tricuspide:'Tricuspide',
   foie:'Foie', vesicule:'Vésicule', voies_biliaires:'Voies Biliaires',
   rate:'Rate', pancreas:'Pancréas', rein_droit:'Rein Droit', rein_gauche:'Rein Gauche',
@@ -450,8 +450,19 @@ function reorderDictKeys(data, fromIdx, toIdx) {
 // ── section_dict ──────────────────────────────────────────────────────────────
 function SectionDict({ num, section, data, editMode, onChange }) {
   if (isBlank(data) && !editMode) return null
-  const entries = Object.entries(data || {}).filter(([, v]) => !isBlank(v) || editMode)
+  let entries = Object.entries(data || {}).filter(([, v]) => !isBlank(v) || editMode)
   if (!entries.length && !editMode) return null
+  // Enforce canonical key order at render time — sections that declare
+  // `keyOrder` (e.g. doppler: mitrale → aorte → pulmonaire → tricuspide)
+  // are ALWAYS displayed in that order, regardless of what the LLM emitted
+  // or how the keys are arranged in the saved JSON.
+  if (Array.isArray(section.keyOrder) && section.keyOrder.length) {
+    const orderIdx = (k) => {
+      const i = section.keyOrder.indexOf(k)
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i
+    }
+    entries = [...entries].sort((a, b) => orderIdx(a[0]) - orderIdx(b[0]))
+  }
   function set(k, v) { onChange({ ...(data || {}), [k]: v }) }
   function removeKey(k) {
     const next = { ...(data || {}) }
@@ -522,11 +533,13 @@ function SectionDict({ num, section, data, editMode, onChange }) {
           <div style={editMode ? { flex: 1, minWidth: 0 } : undefined}>{renderVal(k, v)}</div>
           {editMode && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, paddingTop: 2, flexShrink: 0 }}>
-              <ReorderControls
-                index={idx}
-                length={entries.length}
-                onMove={(from, to) => onChange(reorderDictKeys(data, from, to))}
-              />
+              {!section.keyOrder && (
+                <ReorderControls
+                  index={idx}
+                  length={entries.length}
+                  onMove={(from, to) => onChange(reorderDictKeys(data, from, to))}
+                />
+              )}
               <button className="med-btn-remove" title="Supprimer" onClick={() => removeKey(k)}>✕</button>
             </div>
           )}
@@ -769,6 +782,16 @@ export default function ReportPage() {
           try { parsed = JSON.parse(raw) } catch { parsed = {} }
         } else if (raw && typeof raw === 'object') {
           parsed = raw
+        }
+        // Backwards-compat: legacy reports stored the right-atrium volume
+        // under "vtd_ml" (a misnomer carried over from VTD). The cardiac
+        // layout now uses "vod_ml". Alias old data forward so the value
+        // shows up under the new key without losing the original.
+        if (parsed?.mesures && typeof parsed.mesures === 'object') {
+          if (parsed.mesures.vtd_ml != null && parsed.mesures.vod_ml == null) {
+            parsed.mesures.vod_ml = parsed.mesures.vtd_ml
+            delete parsed.mesures.vtd_ml
+          }
         }
         setEditData(parsed)
       })

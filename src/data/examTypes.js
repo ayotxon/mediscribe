@@ -71,7 +71,7 @@ export const EXAM_TYPES = {
               normal: null,
               items: [
                 { key: 'vog_ml', prefix: 'VOG = ', suffix: ' ml' },
-                { key: 'vtd_ml', prefix: '   VOD = ', suffix: ' ml' }
+                { key: 'vod_ml', prefix: '   VOD = ', suffix: ' ml' }
               ]
             }
           ],
@@ -129,7 +129,7 @@ GLOSSAIRE des formes parlées → clé JSON :
 - e_a_ratio       ← "E/A", "E sur A", "rapport E sur A"
 - e_eprime        ← "E/E'", "E sur E prime", "E sur E'"
 - vog_ml          ← "VOG", "volume OG", "volume oreillette gauche"
-- vtd_ml          ← "VOD", "volume OD", "volume oreillette droite"
+- vod_ml          ← "VOD", "volume OD", "volume oreillette droite"
 - tapse_mm        ← "TAPSE"
 
 CHIFFRES : accepte les unités exprimées ou non ("9 mm" ou "9" → 9). Pour les ratios (h/r, E/A, E/E'), garde la forme parlée ("0.5", "0,5", "1/2").
@@ -161,7 +161,7 @@ Retourne UNIQUEMENT ce JSON, en CONSERVANT cet ordre exact des clés:
     "e_a_ratio": null,
     "e_eprime": null,
     "vog_ml": null,
-    "vtd_ml": null,
+    "vod_ml": null,
     "tapse_mm": null
   },
   "doppler": {
