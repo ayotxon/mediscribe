@@ -3,6 +3,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { getReport, updateReport, deleteReport } from '../services/api.js'
 import { getExamType } from '../data/examTypes.js'
 import { useAuth } from '../context/AuthContext.jsx'
+import {
+  getAudioBlobForReport,
+  deleteAudioForReport,
+  hasEncryptionKey
+} from '../services/audioStorage.js'
 
 // ── Label overrides ───────────────────────────────────────────────────────────
 const LABELS = {
@@ -770,6 +775,8 @@ export default function ReportPage() {
   const [editData, setEditData] = useState({})
   const [saving, setSaving]     = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
+  const [audioUrl, setAudioUrl] = useState(null)
+  const [audioState, setAudioState] = useState('idle') // 'idle' | 'loading' | 'ready' | 'locked' | 'missing' | 'error'
 
   useEffect(() => {
     getReport(id)
@@ -799,6 +806,40 @@ export default function ReportPage() {
       .finally(() => setLoading(false))
   }, [id])
 
+  // Probe IDB for the dictation audio attached to this report and prepare
+  // a blob URL for playback. Runs after the report has loaded.
+  useEffect(() => {
+    if (!report?.id) return
+    let cancelledUrl = null
+    setAudioState('loading')
+    ;(async () => {
+      try {
+        if (!hasEncryptionKey()) {
+          // The report list call worked → user is authenticated, but the
+          // in-memory key is gone (locked). The chunks can't be decrypted
+          // until the user unlocks the app.
+          setAudioState('locked')
+          return
+        }
+        const blob = await getAudioBlobForReport(report.id)
+        if (!blob) {
+          setAudioState('missing')
+          return
+        }
+        const url = URL.createObjectURL(blob)
+        cancelledUrl = url
+        setAudioUrl(url)
+        setAudioState('ready')
+      } catch {
+        setAudioState('error')
+      }
+    })()
+    return () => {
+      if (cancelledUrl) URL.revokeObjectURL(cancelledUrl)
+      setAudioUrl(null)
+    }
+  }, [report?.id])
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -810,7 +851,13 @@ export default function ReportPage() {
 
   async function handleDelete() {
     if (!confirm('Supprimer ce rapport ?')) return
-    try { await deleteReport(id); navigate('/') } catch { /* noop */ }
+    try {
+      await deleteReport(id)
+      // Best-effort: also drop the local audio. If it's already gone or the
+      // app is locked, swallow the error — the report is already deleted.
+      await deleteAudioForReport(id).catch(() => {})
+      navigate('/')
+    } catch { /* noop */ }
   }
 
   function toggleTranscript() {
@@ -903,6 +950,56 @@ export default function ReportPage() {
           profile={user?.profile || null}
           userEmail={user?.email || null}
         />
+
+        {/* ── Audio playback (kept for verification) ── */}
+        {audioState !== 'missing' && audioState !== 'idle' && (
+          <div className="doc-transcript-wrap no-print" style={{ marginTop: 16 }}>
+            <div className="doc-transcript-body">
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                gap: 12, marginBottom: 10
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                  <strong style={{ color: 'var(--text-primary)', fontSize: '0.82rem' }}>
+                    Enregistrement audio
+                  </strong>
+                </div>
+                {audioState === 'ready' && (
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    Conservé localement pour vérification
+                  </span>
+                )}
+              </div>
+              {audioState === 'loading' && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Chargement…</div>
+              )}
+              {audioState === 'locked' && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  🔒 Déverrouillez la session pour écouter l'enregistrement.
+                </div>
+              )}
+              {audioState === 'error' && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--error)' }}>
+                  Impossible de charger l'audio.
+                </div>
+              )}
+              {audioState === 'ready' && audioUrl && (
+                <audio
+                  src={audioUrl}
+                  controls
+                  preload="metadata"
+                  style={{ width: '100%' }}
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         {report.transcript && (
           <div id="doc-transcript-panel" className="doc-transcript-wrap no-print">

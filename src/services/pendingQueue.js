@@ -144,7 +144,11 @@ export async function processSession(sessionId, cb = {}) {
     user_id:      session.meta.userId
   })
 
-  await deleteSession(sessionId)
+  // Archive: keep the audio in IDB, link it to the saved report so the
+  // doctor can replay the dictation later for verification. The session
+  // disappears from the pending queue (state !== 'completed' filter) but
+  // the chunks are preserved for getAudioBlobForReport.
+  await updateSession(sessionId, { state: 'completed', reportId: report.id })
   cb.onComplete?.(sessionId, report.id)
   return report
 }
@@ -204,7 +208,7 @@ async function toListItem(raw) {
 export async function getPending() {
   const all = await listSessionsRaw()
   const visible = all
-    .filter(s => s.state !== 'recording')   // hide active captures
+    .filter(s => s.state !== 'recording' && s.state !== 'completed')
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   return Promise.all(visible.map(toListItem))
 }

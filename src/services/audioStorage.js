@@ -169,9 +169,11 @@ export async function updateSession(sessionId, updates) {
   const raw = await getSessionRaw(sessionId)
   if (!raw) return null
 
-  // Cheap path: only state/attempts — don't touch encrypted payloads
+  // Cheap path: bookkeeping fields only — don't touch encrypted payloads.
+  // reportId is non-PHI (server-issued UUID) and stays unencrypted so we can
+  // look the session up by report later without needing the unlock key.
   const bookkeepingOnly =
-    Object.keys(updates).every(k => k === 'state' || k === 'attempts' || k === 'mimeType')
+    Object.keys(updates).every(k => k === 'state' || k === 'attempts' || k === 'mimeType' || k === 'reportId')
   if (bookkeepingOnly) {
     const merged = { ...raw, ...updates }
     const t = await tx(STORE_SESS, 'readwrite')
@@ -261,6 +263,27 @@ export async function hasChunks(sessionId) {
     req.onsuccess = () => resolve(req.result !== null)
     req.onerror   = () => reject(req.error)
   })
+}
+
+// ── Archived sessions lookup (audio kept for verification after save) ────────
+
+export async function getSessionByReportId(reportId) {
+  if (!reportId) return null
+  const all = await listSessionsRaw()
+  return all.find(s => s.reportId === reportId) || null
+}
+
+export async function getAudioBlobForReport(reportId) {
+  const session = await getSessionByReportId(reportId)
+  if (!session) return null
+  return getSessionBlob(session.id)
+}
+
+export async function deleteAudioForReport(reportId) {
+  const session = await getSessionByReportId(reportId)
+  if (!session) return false
+  await deleteSession(session.id)
+  return true
 }
 
 // ── Storage estimate ──────────────────────────────────────────────────────────
