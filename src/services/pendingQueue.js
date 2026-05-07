@@ -21,7 +21,7 @@ import {
 // exam type's layout (e.g. doppler → mitrale, aorte, pulmonaire, tricuspide).
 // Runs once at structure time so the saved report is canonical; user reorders
 // after that are preserved as-is in the JSON object's key order.
-function normalizeStructured(examTypeId, structured) {
+export function normalizeStructured(examTypeId, structured) {
   const examType = EXAM_TYPES?.[examTypeId]
   if (!examType?.layout || !structured || typeof structured !== 'object') return structured
   const out = { ...structured }

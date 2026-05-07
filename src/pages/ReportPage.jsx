@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getReport, updateReport, deleteReport } from '../services/api.js'
+import {
+  getReport, updateReport, deleteReport,
+  transcribeAudio, structureExam
+} from '../services/api.js'
 import { getExamType } from '../data/examTypes.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import {
@@ -8,6 +11,7 @@ import {
   deleteAudioForReport,
   hasEncryptionKey
 } from '../services/audioStorage.js'
+import { normalizeStructured } from '../services/pendingQueue.js'
 
 // ── Label overrides ───────────────────────────────────────────────────────────
 const LABELS = {
@@ -777,6 +781,9 @@ export default function ReportPage() {
   const [showTranscript, setShowTranscript] = useState(false)
   const [audioUrl, setAudioUrl] = useState(null)
   const [audioState, setAudioState] = useState('idle') // 'idle' | 'loading' | 'ready' | 'locked' | 'missing' | 'error'
+  const [regenerating, setRegenerating] = useState(null) // null | 'transcribing' | 'structuring'
+  const [regenError, setRegenError] = useState(null)
+  const [regenSuccess, setRegenSuccess] = useState(null)
 
   useEffect(() => {
     getReport(id)
@@ -860,6 +867,86 @@ export default function ReportPage() {
     } catch { /* noop */ }
   }
 
+  // Preserve the manual fields that live alongside the LLM output so a
+  // re-structure doesn't wipe the doctor's customisations.
+  function preserveManualFields(newStructured, oldStructured) {
+    const out = { ...newStructured }
+    const old = oldStructured || {}
+    if (old.referred_by != null) out.referred_by = old.referred_by
+    if (old.signature   != null) out.signature   = old.signature
+    if (old.report_date != null) out.report_date = old.report_date
+    return out
+  }
+
+  async function handleReTranscribe() {
+    if (editMode) {
+      alert('Annulez ou enregistrez vos modifications avant de relancer la transcription.')
+      return
+    }
+    if (audioState !== 'ready') {
+      alert('Audio indisponible — impossible de relancer la transcription.')
+      return
+    }
+    if (!confirm('Relancer la transcription depuis l\'audio ?\n\nLa transcription ET la structure actuelles seront remplacées.')) return
+
+    setRegenError(null)
+    setRegenSuccess(null)
+    setRegenerating('transcribing')
+    try {
+      const blob = await getAudioBlobForReport(id)
+      if (!blob) throw new Error('Audio introuvable')
+
+      const { text } = await transcribeAudio(blob)
+      if (!text || !text.trim()) throw new Error('Transcription vide')
+
+      setRegenerating('structuring')
+      const examType = getExamType(report.exam_type)
+      const res = await structureExam(text, report.exam_type, examType.prompt)
+      let newStructured = normalizeStructured(report.exam_type, res.structured)
+      newStructured = preserveManualFields(newStructured, editData)
+
+      await updateReport(id, { transcript: text, structured: newStructured })
+      setReport(r => ({ ...r, transcript: text, structured: newStructured }))
+      setEditData(newStructured)
+      setRegenSuccess('Transcription et structure régénérées.')
+    } catch (err) {
+      setRegenError(err?.message || 'Erreur pendant la régénération')
+    } finally {
+      setRegenerating(null)
+    }
+  }
+
+  async function handleReStructure() {
+    if (editMode) {
+      alert('Annulez ou enregistrez vos modifications avant de relancer la structuration.')
+      return
+    }
+    if (!report?.transcript || !report.transcript.trim()) {
+      alert('Aucune transcription disponible — impossible de re-structurer.')
+      return
+    }
+    if (!confirm('Re-générer la structure depuis la transcription actuelle ?\n\nLa structure actuelle sera remplacée (les champs « Adressé par », signature et date sont conservés).')) return
+
+    setRegenError(null)
+    setRegenSuccess(null)
+    setRegenerating('structuring')
+    try {
+      const examType = getExamType(report.exam_type)
+      const res = await structureExam(report.transcript, report.exam_type, examType.prompt)
+      let newStructured = normalizeStructured(report.exam_type, res.structured)
+      newStructured = preserveManualFields(newStructured, editData)
+
+      await updateReport(id, { structured: newStructured })
+      setReport(r => ({ ...r, structured: newStructured }))
+      setEditData(newStructured)
+      setRegenSuccess('Structure régénérée.')
+    } catch (err) {
+      setRegenError(err?.message || 'Erreur pendant la structuration')
+    } finally {
+      setRegenerating(null)
+    }
+  }
+
   function toggleTranscript() {
     setShowTranscript(s => {
       const next = !s
@@ -940,6 +1027,40 @@ export default function ReportPage() {
         </div>
       </div>
 
+      {/* ── Regeneration status banner ── */}
+      {(regenerating || regenError || regenSuccess) && (
+        <div
+          className="no-print"
+          style={{
+            padding: '8px 14px',
+            fontSize: '0.82rem',
+            background: regenError ? 'rgba(239,68,68,0.1)'
+                       : regenSuccess ? 'rgba(34,197,94,0.1)'
+                       : 'rgba(59,130,246,0.1)',
+            color: regenError ? 'var(--error)'
+                  : regenSuccess ? '#16a34a'
+                  : 'var(--text-primary)',
+            borderBottom: '1px solid var(--border-color, #e2e8f0)',
+            display: 'flex', alignItems: 'center', gap: 10
+          }}
+        >
+          {regenerating === 'transcribing' && <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Transcription en cours… (peut prendre jusqu'à 2 min pour un long audio)</>}
+          {regenerating === 'structuring' && <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Structuration en cours…</>}
+          {regenError && (
+            <>
+              <span>⚠️ {regenError}</span>
+              <button onClick={() => setRegenError(null)} className="btn btn-secondary btn-sm" style={{ marginLeft: 'auto', fontSize: '0.72rem', padding: '2px 8px' }}>✕</button>
+            </>
+          )}
+          {regenSuccess && !regenerating && (
+            <>
+              <span>✓ {regenSuccess}</span>
+              <button onClick={() => setRegenSuccess(null)} className="btn btn-secondary btn-sm" style={{ marginLeft: 'auto', fontSize: '0.72rem', padding: '2px 8px' }}>✕</button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Document ── */}
       <div className="report-content" style={{ background: '#e8edf4' }}>
         <MedicalDocument
@@ -971,9 +1092,22 @@ export default function ReportPage() {
                   </strong>
                 </div>
                 {audioState === 'ready' && (
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    Conservé localement pour vérification
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      Conservé localement
+                    </span>
+                    <button
+                      onClick={handleReTranscribe}
+                      disabled={regenerating !== null || editMode}
+                      title={editMode ? 'Quittez le mode édition d\'abord' : 'Relance Whisper sur l\'audio puis re-structure'}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                    >
+                      {regenerating === 'transcribing' ? '⏳ Transcription…'
+                       : regenerating === 'structuring' ? '⏳ Structuration…'
+                       : '🔄 Refaire la transcription'}
+                    </button>
+                  </div>
                 )}
               </div>
               {audioState === 'loading' && (
@@ -1024,14 +1158,25 @@ export default function ReportPage() {
                   <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                     Transcription brute
                   </div>
-                  <button
-                    onClick={() => navigator.clipboard?.writeText(report.transcript).catch(() => {})}
-                    className="btn btn-secondary btn-sm"
-                    title="Copier la transcription"
-                    style={{ fontSize: '0.72rem', padding: '4px 10px' }}
-                  >
-                    Copier
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={handleReStructure}
+                      disabled={regenerating !== null || editMode || !report.transcript}
+                      title={editMode ? 'Quittez le mode édition d\'abord' : 'Re-génère la structure depuis cette transcription'}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                    >
+                      {regenerating === 'structuring' ? '⏳ Structuration…' : '🔄 Refaire la structure'}
+                    </button>
+                    <button
+                      onClick={() => navigator.clipboard?.writeText(report.transcript).catch(() => {})}
+                      className="btn btn-secondary btn-sm"
+                      title="Copier la transcription"
+                      style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                    >
+                      Copier
+                    </button>
+                  </div>
                 </div>
                 <div style={{ whiteSpace: 'pre-wrap' }}>{report.transcript}</div>
               </div>
